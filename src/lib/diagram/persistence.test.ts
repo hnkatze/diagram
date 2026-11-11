@@ -32,6 +32,7 @@ const good = (): Diagram => ({
       id: "cliente->pedido",
       source: "cliente",
       target: "pedido",
+      relation: "association",
       sourceCardinality: "1",
       targetCardinality: "0..*",
       label: "realiza",
@@ -270,4 +271,59 @@ test("storage never throws when the environment misbehaves", () => {
   };
   assert.equal(readStorage(hostile), null);
   assert.equal(writeStorage(hostile, good()), false);
+});
+
+test("an old file without a relation field reads as an association", () => {
+  const value = JSON.parse(toFile(good())) as { diagram: { edges: Record<string, unknown>[] } };
+  delete value.diagram.edges[0].relation;
+
+  const restored = fromFile(JSON.stringify(value));
+  assert.equal(restored.ok, true);
+  if (!restored.ok || isStateDiagram(restored.value)) return;
+  assert.equal(restored.value.edges[0].relation, "association");
+});
+
+test("a relation kind and missing cardinalities survive the file round trip", () => {
+  const diagram = good();
+  if (isStateDiagram(diagram)) return;
+  diagram.edges[0] = { ...diagram.edges[0], relation: "composition", sourceCardinality: null, targetCardinality: null };
+
+  const restored = fromFile(toFile(diagram));
+  assert.equal(restored.ok, true);
+  if (!restored.ok) return;
+  assert.deepEqual(restored.value, diagram);
+});
+
+test("a file with no cardinalities reads them as null", () => {
+  const value = JSON.parse(toFile(good())) as { diagram: { edges: Record<string, unknown>[] } };
+  delete value.diagram.edges[0].sourceCardinality;
+  delete value.diagram.edges[0].targetCardinality;
+
+  const restored = fromFile(JSON.stringify(value));
+  assert.equal(restored.ok, true);
+  if (!restored.ok || isStateDiagram(restored.value)) return;
+  assert.equal(restored.value.edges[0].sourceCardinality, null);
+  assert.equal(restored.value.edges[0].targetCardinality, null);
+});
+
+test("an unknown relation kind is refused and names the value", () => {
+  const value = JSON.parse(toFile(good())) as { diagram: { edges: Record<string, unknown>[] } };
+  value.diagram.edges[0].relation = "herencia";
+
+  const restored = fromFile(JSON.stringify(value));
+  assert.equal(restored.ok, false);
+  if (restored.ok) return;
+  assert.ok(restored.error.includes('"herencia"'), restored.error);
+  assert.ok(restored.error.includes("relation"), restored.error);
+});
+
+test("a file with a single cardinality on a relation is refused and names the relation", () => {
+  const value = JSON.parse(toFile(good())) as { diagram: { edges: Record<string, unknown>[] } };
+  const id = value.diagram.edges[0].id as string;
+  value.diagram.edges[0].targetCardinality = null;
+
+  const restored = fromFile(JSON.stringify(value));
+  assert.equal(restored.ok, false);
+  if (restored.ok) return;
+  assert.ok(restored.error.includes(`"${id}"`), restored.error);
 });

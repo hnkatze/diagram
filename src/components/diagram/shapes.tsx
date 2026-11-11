@@ -18,10 +18,14 @@ import {
   NODE_HEADER_HEIGHT,
   NODE_PADDING_X,
   NODE_ROW_HEIGHT,
+  EDGE_DASH,
   PSEUDO_STATE_SIZE,
   borderPoint,
+  cardinalityLabel,
   cardinalityPoints,
+  edgeMarker,
   formatFieldLabel,
+  markerEnd,
   measureState,
 } from "@/lib/diagram/measure";
 import type {
@@ -117,6 +121,18 @@ function rectOf(node: InternalNode | undefined): Rect | null {
 
 const centerOf = (box: Rect): Point => ({ x: box.x + box.width / 2, y: box.y + box.height / 2 });
 
+/** Point `distance` along the line from `point` towards `towards`. */
+function insetPoint(point: Point, towards: Point, distance: number): Point {
+  const length = Math.hypot(towards.x - point.x, towards.y - point.y) || 1;
+  return {
+    x: point.x + ((towards.x - point.x) / length) * distance,
+    y: point.y + ((towards.y - point.y) / length) * distance,
+  };
+}
+
+/** The marker fill is a theme token, so hollow shapes match the canvas background. */
+const MARKER_FILL = { line: "fill-muted-foreground", background: "fill-background", none: "fill-none" } as const;
+
 function SelfLoopPath(x: number, y: number): string {
   return `M ${x} ${y} C ${x + SELF_LOOP_X} ${y} ${x + SELF_LOOP_X} ${y - SELF_LOOP_Y} ${x} ${y - SELF_LOOP_Y}`;
 }
@@ -137,11 +153,17 @@ function RelationEdgeView({ source, target, sourceX, sourceY, targetX, targetY, 
   const from: Point = boxes ? borderPoint(boxes.sourceBox, centerOf(boxes.targetBox).x, centerOf(boxes.targetBox).y) : { x: sourceX, y: sourceY };
   const to: Point = boxes ? borderPoint(boxes.targetBox, centerOf(boxes.sourceBox).x, centerOf(boxes.sourceBox).y) : { x: targetX, y: targetY };
 
+  // The marker comes from shared geometry; the line stops where its base is.
+  const end = isSelfLoop ? null : markerEnd(edge.relation);
+  const marker = end === "source" ? edgeMarker(edge.relation, from, to) : end === "target" ? edgeMarker(edge.relation, to, from) : null;
+  const lineFrom = end === "source" && marker ? insetPoint(from, to, marker.inset) : from;
+  const lineTo = end === "target" && marker ? insetPoint(to, from, marker.inset) : to;
+
   const [straightPath, labelX, labelY] = getStraightPath({
-    sourceX: from.x,
-    sourceY: from.y,
-    targetX: to.x,
-    targetY: to.y,
+    sourceX: lineFrom.x,
+    sourceY: lineFrom.y,
+    targetX: lineTo.x,
+    targetY: lineTo.y,
   });
   const path = isSelfLoop ? SelfLoopPath(from.x, from.y) : straightPath;
 
@@ -151,27 +173,43 @@ function RelationEdgeView({ source, target, sourceX, sourceY, targetX, targetY, 
     ? { x: from.x + SELF_LOOP_X * 0.5, y: from.y - SELF_LOOP_Y + 12 }
     : cards.target;
 
+  const sourceText = cardinalityLabel(edge.sourceCardinality);
+  const targetText = cardinalityLabel(edge.targetCardinality);
+
   return (
     <>
       <path
         d={path}
         fill="none"
         strokeWidth={selected ? 2.5 : 1.5}
+        strokeDasharray={marker?.dashed ? EDGE_DASH : undefined}
         className={selected ? "stroke-foreground" : "stroke-muted-foreground"}
       />
+      {marker ? (
+        <path
+          d={marker.path}
+          strokeWidth={selected ? 2.5 : 1.5}
+          strokeLinejoin="round"
+          className={`marker marker-${edge.relation} ${selected ? "stroke-foreground" : "stroke-muted-foreground"} ${MARKER_FILL[marker.fill]}`}
+        />
+      ) : null}
       <EdgeLabelRenderer>
-        <span
-          className="pointer-events-none absolute text-[11px] text-muted-foreground"
-          style={{ transform: `translate(-50%, -50%) translate(${sourceCard.x}px, ${sourceCard.y}px)` }}
-        >
-          {edge.sourceCardinality}
-        </span>
-        <span
-          className="pointer-events-none absolute text-[11px] text-muted-foreground"
-          style={{ transform: `translate(-50%, -50%) translate(${targetCard.x}px, ${targetCard.y}px)` }}
-        >
-          {edge.targetCardinality}
-        </span>
+        {sourceText === "" ? null : (
+          <span
+            className="pointer-events-none absolute text-[11px] text-muted-foreground"
+            style={{ transform: `translate(-50%, -50%) translate(${sourceCard.x}px, ${sourceCard.y}px)` }}
+          >
+            {sourceText}
+          </span>
+        )}
+        {targetText === "" ? null : (
+          <span
+            className="pointer-events-none absolute text-[11px] text-muted-foreground"
+            style={{ transform: `translate(-50%, -50%) translate(${targetCard.x}px, ${targetCard.y}px)` }}
+          >
+            {targetText}
+          </span>
+        )}
         {edge.label === "" ? null : (
           <span
             className="pointer-events-none absolute rounded bg-card px-1 text-xs text-card-foreground"

@@ -125,3 +125,14 @@ test("the state sample parses, is laid out and does not overlap", () => {
   );
   assert.equal(stateOverlaps(diagram), false);
 });
+
+test("the UML sample draws a generalization and a composition, the ER sample neither", () => {
+  const relations = (id: string): string[] => {
+    const diagram = sampleById(id);
+    return diagram.kind === "state" ? [] : diagram.edges.map((edge) => edge.relation);
+  };
+
+  assert.ok(relations("uml").includes("generalization"));
+  assert.ok(relations("uml").includes("composition"));
+  assert.deepEqual([...new Set(relations("er"))], ["association"]);
+});

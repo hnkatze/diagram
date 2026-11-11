@@ -8,6 +8,10 @@ import {
   bounds,
   estimateTextWidth,
   borderPoint,
+  cardinalityLabel,
+  edgeMarker,
+  markerEnd,
+  relationIsDashed,
   PSEUDO_STATE_SIZE,
   STATE_HEIGHT,
   STATE_MAX_WIDTH,
@@ -167,4 +171,65 @@ test("bounds on a state diagram wraps every node plus the padding", () => {
   assert.deepEqual(bounds(diagram, 20), { x: -20, y: -20, width: 460, height: 464 });
   // The pseudo-states are covered by their own square, not by the state height.
   assert.ok(bounds(diagram, 0).y + bounds(diagram, 0).height >= 400 + PSEUDO_STATE_SIZE);
+});
+
+test("edgeMarker returns null for a plain association and nothing is inset", () => {
+  assert.equal(edgeMarker("association", { x: 100, y: 50 }, { x: 0, y: 50 }), null);
+});
+
+test("a directed association is an open arrow on a solid line, at the target", () => {
+  const marker = edgeMarker("directed-association", { x: 100, y: 50 }, { x: 0, y: 50 });
+
+  assert.ok(marker);
+  assert.equal(marker.fill, "none");
+  assert.equal(marker.inset, 0);
+  assert.equal(marker.dashed, false);
+  assert.ok(marker.path.startsWith("M 100 50"));
+  assert.equal(markerEnd("directed-association"), "target");
+  assert.equal(markerEnd("association"), null);
+  assert.equal(relationIsDashed("directed-association"), false);
+});
+
+test("every marker tip sits on the endpoint and its base lies back along the line", () => {
+  const point = { x: 100, y: 50 };
+  const towards = { x: 0, y: 50 };
+  const sizes = { generalization: 12, realization: 12, composition: 14, aggregation: 14, dependency: 10 } as const;
+
+  for (const [relation, length] of Object.entries(sizes) as [keyof typeof sizes, number][]) {
+    const marker = edgeMarker(relation, point, towards);
+    assert.ok(marker, relation);
+    assert.ok(marker.path.startsWith("M 100 50"), `${relation}: ${marker.path}`);
+    assert.ok(marker.path.includes(`${100 - length} `), `${relation}: ${marker.path}`);
+  }
+});
+
+test("edgeMarker fills, insets and dashes follow the relation kind", () => {
+  const point = { x: 100, y: 50 };
+  const towards = { x: 0, y: 50 };
+
+  assert.deepEqual(
+    (["generalization", "realization", "composition", "aggregation", "dependency"] as const).map((relation) => {
+      const marker = edgeMarker(relation, point, towards);
+      return marker ? [relation, marker.fill, marker.inset, marker.dashed] : null;
+    }),
+    [
+      ["generalization", "background", 12, false],
+      ["realization", "background", 12, true],
+      ["composition", "line", 14, false],
+      ["aggregation", "background", 14, false],
+      ["dependency", "none", 0, true],
+    ],
+  );
+});
+
+test("relationIsDashed is true only for realization and dependency", () => {
+  assert.equal(relationIsDashed("realization"), true);
+  assert.equal(relationIsDashed("dependency"), true);
+  assert.equal(relationIsDashed("association"), false);
+  assert.equal(relationIsDashed("generalization"), false);
+});
+
+test("cardinalityLabel renders nothing for a cardinality that was not stated", () => {
+  assert.equal(cardinalityLabel(null), "");
+  assert.equal(cardinalityLabel("0..*"), "0..*");
 });

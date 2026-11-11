@@ -13,6 +13,16 @@ export type Visibility = "+" | "-" | "#";
 
 export type Cardinality = "1" | "0..1" | "1..*" | "0..*";
 
+/** What a relation means. Only the DSL arrow and the markers tell them apart. */
+export type RelationKind =
+  | "association"
+  | "directed-association"
+  | "generalization"
+  | "realization"
+  | "composition"
+  | "aggregation"
+  | "dependency";
+
 export type StateRole = "state" | "initial" | "final";
 
 export interface DiagramField {
@@ -36,15 +46,19 @@ export interface ErNode {
   fields: DiagramField[];
 }
 
-/** A relation between two class nodes, with a cardinality on each end. */
+/**
+ * A relation between two class nodes. A cardinality is `null` when it was not
+ * stated, which is every relation written with an arrow token.
+ */
 export interface RelationEdge {
   id: string;
   /** Id of the source node. */
   source: string;
   /** Id of the target node. */
   target: string;
-  sourceCardinality: Cardinality;
-  targetCardinality: Cardinality;
+  relation: RelationKind;
+  sourceCardinality: Cardinality | null;
+  targetCardinality: Cardinality | null;
   label: string;
 }
 
@@ -118,6 +132,16 @@ export const DIAGRAM_VERSION = 1 as const;
 
 export const CARDINALITIES: readonly Cardinality[] = ["1", "0..1", "1..*", "0..*"];
 
+export const RELATION_KINDS: readonly RelationKind[] = [
+  "association",
+  "directed-association",
+  "generalization",
+  "realization",
+  "composition",
+  "aggregation",
+  "dependency",
+];
+
 export const VISIBILITIES: readonly Visibility[] = ["+", "-", "#"];
 
 export const DEFAULT_CARDINALITY: Cardinality = "1..*";
@@ -140,6 +164,10 @@ export function normalizeCardinality(value: string): Cardinality | null {
   const trimmed = value.trim();
   if (trimmed === "*") return "0..*";
   return isCardinality(trimmed) ? trimmed : null;
+}
+
+export function isRelationKind(value: string): value is RelationKind {
+  return (RELATION_KINDS as readonly string[]).includes(value);
 }
 
 export function isVisibility(value: string): value is Visibility {

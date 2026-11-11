@@ -1,5 +1,6 @@
 import { slugify, validate } from "./model.ts";
 import type {
+  Cardinality,
   Diagram,
   DiagramField,
   ErDiagram,
@@ -11,7 +12,7 @@ import type {
   StateRole,
   Transition,
 } from "./types.ts";
-import { err, isDiagramKind, isVisibility, normalizeCardinality, ok } from "./types.ts";
+import { RELATION_KINDS, err, isDiagramKind, isRelationKind, isVisibility, normalizeCardinality, ok } from "./types.ts";
 
 /**
  * Persistence (spec S10): the autosaved local copy and the `.json` exchange
@@ -66,30 +67,44 @@ function readNode(value: unknown): ErNode | null {
 
 function readEdge(value: unknown): Result<RelationEdge> {
   if (!isRecord(value)) return err("A relation is not an object");
-  const { id, source, target, sourceCardinality, targetCardinality, label } = value;
+  const { id, source, target, relation, sourceCardinality, targetCardinality, label } = value;
   if (typeof id !== "string" || typeof source !== "string" || typeof target !== "string") {
     return err("A relation is missing its id, source or target");
   }
-  if (typeof sourceCardinality !== "string") {
-    return err(`The relation "${id}" has no source cardinality`);
+  // A file written before relation kinds existed has no `relation`: it is an association.
+  if (relation !== undefined && (typeof relation !== "string" || !isRelationKind(relation))) {
+    return err(`The relation "${id}" has an unknown relation "${String(relation)}" (expected ${RELATION_KINDS.join(", ")})`);
   }
-  if (typeof targetCardinality !== "string") {
-    return err(`The relation "${id}" has no target cardinality`);
-  }
-  const from = normalizeCardinality(sourceCardinality);
-  if (!from) {
-    return err(
-      `The relation "${id}" has an unknown source cardinality "${sourceCardinality}" (expected 1, 0..1, 1..*, 0..* or *)`,
-    );
-  }
-  const to = normalizeCardinality(targetCardinality);
-  if (!to) {
-    return err(
-      `The relation "${id}" has an unknown target cardinality "${targetCardinality}" (expected 1, 0..1, 1..*, 0..* or *)`,
-    );
+  const from = readCardinality(id, "source", sourceCardinality);
+  if (!from.ok) return from;
+  const to = readCardinality(id, "target", targetCardinality);
+  if (!to.ok) return to;
+  if ((from.value === null) !== (to.value === null)) {
+    return err(`The relation "${id}" states a cardinality on only one end`);
   }
   if (typeof label !== "string") return err(`The relation "${id}" has no label`);
-  return ok({ id, source, target, sourceCardinality: from, targetCardinality: to, label });
+  return ok({
+    id,
+    source,
+    target,
+    relation: relation ?? "association",
+    sourceCardinality: from.value,
+    targetCardinality: to.value,
+    label,
+  });
+}
+
+/** A missing or `null` cardinality was not stated, which is `null` in the model. */
+function readCardinality(id: string, end: "source" | "target", value: unknown): Result<Cardinality | null> {
+  if (value === undefined || value === null) return ok(null);
+  if (typeof value !== "string") return err(`The relation "${id}" has no ${end} cardinality`);
+  const cardinality = normalizeCardinality(value);
+  if (!cardinality) {
+    return err(
+      `The relation "${id}" has an unknown ${end} cardinality "${value}" (expected 1, 0..1, 1..*, 0..* or *)`,
+    );
+  }
+  return ok(cardinality);
 }
 
 /** Deep runtime validation of anything claiming to be a diagram. */

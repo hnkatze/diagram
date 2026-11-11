@@ -20,6 +20,7 @@ const edge = (source: string, target: string, id = `${source}->${target}`): Diag
   id,
   source,
   target,
+  relation: "association",
   sourceCardinality: "1",
   targetCardinality: "0..*",
   label: "",

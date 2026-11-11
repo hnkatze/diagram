@@ -65,8 +65,19 @@ entity Pago {
   + monto decimal nullable
 }
 
+entity Administrador {
+  + permisos text
+}
+
+entity Direccion {
+  + calle text
+  + ciudad text
+}
+
 Usuario 1 -- 0..* Pedido : "realiza"
 Pedido 1 -- 0..1 Pago : "se cobra con"
+Usuario <|-- Administrador
+Usuario *-- Direccion : "vive en"
 `;
 
 const STATE_SAMPLE = `diagram state "Ciclo del pedido"

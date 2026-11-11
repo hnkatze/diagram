@@ -22,8 +22,8 @@ export interface InspectorProps {
 
 type DiagramEdgePatch = {
   label?: string;
-  sourceCardinality?: Cardinality;
-  targetCardinality?: Cardinality;
+  sourceCardinality?: Cardinality | null;
+  targetCardinality?: Cardinality | null;
 };
 
 const CARDINALITY_LABELS: Record<Cardinality, string> = {
@@ -32,6 +32,18 @@ const CARDINALITY_LABELS: Record<Cardinality, string> = {
   "1..*": "1..* (uno o varios)",
   "0..*": "0..* (muchos)",
 };
+
+/** An end with no stated cardinality, as every arrow relation has. */
+const NO_CARDINALITY = "";
+const CARDINALITY_OPTIONS = [
+  { value: NO_CARDINALITY, text: "— (sin cardinalidad)" },
+  ...CARDINALITIES.map((cardinality) => ({ value: cardinality, text: CARDINALITY_LABELS[cardinality] })),
+];
+
+/** "Sin cardinalidad" clears both ends: a relation states a cardinality on both or on neither. */
+const cardinalityPatch = (end: "sourceCardinality" | "targetCardinality", value: string): DiagramEdgePatch =>
+  value === NO_CARDINALITY ? { sourceCardinality: null, targetCardinality: null } : { [end]: value as Cardinality };
+
 
 function Select({
   label,
@@ -198,15 +210,15 @@ export function Inspector(props: InspectorProps) {
         </label>
         <Select
           label={`Cardinalidad en ${sourceName}`}
-          value={edge.sourceCardinality}
-          options={CARDINALITIES.map((cardinality) => ({ value: cardinality, text: CARDINALITY_LABELS[cardinality] }))}
-          onChange={(value) => props.onUpdateEdge(edge.id, { sourceCardinality: value as Cardinality })}
+          value={edge.sourceCardinality ?? NO_CARDINALITY}
+          options={CARDINALITY_OPTIONS}
+          onChange={(value) => props.onUpdateEdge(edge.id, cardinalityPatch("sourceCardinality", value))}
         />
         <Select
           label={`Cardinalidad en ${targetName}`}
-          value={edge.targetCardinality}
-          options={CARDINALITIES.map((cardinality) => ({ value: cardinality, text: CARDINALITY_LABELS[cardinality] }))}
-          onChange={(value) => props.onUpdateEdge(edge.id, { targetCardinality: value as Cardinality })}
+          value={edge.targetCardinality ?? NO_CARDINALITY}
+          options={CARDINALITY_OPTIONS}
+          onChange={(value) => props.onUpdateEdge(edge.id, cardinalityPatch("targetCardinality", value))}
         />
       </div>
     );

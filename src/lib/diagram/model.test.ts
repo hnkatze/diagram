@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
+import { parse, serialize } from "./dsl.ts";
 import {
   addEdge,
   addField,
@@ -201,4 +202,45 @@ test("mergeStructure keeps known positions and stacks the new entities", () => {
   assert.deepEqual([pedido?.x, pedido?.y], [400, 100]);
   assert.deepEqual(addedIds, ["producto"]);
   assert.ok((producto?.y ?? 0) > 100, "the new entity lands below the existing ones");
+});
+
+test("a cardinality is stated on both ends of a relation or on neither", () => {
+  const base = fixture();
+  const id = base.edges[0].id;
+  const cleared = updateEdge(base, id, { sourceCardinality: null });
+  assert.equal(cleared.edges[0].sourceCardinality, null);
+  assert.equal(cleared.edges[0].targetCardinality, null);
+
+  const filled = updateEdge(cleared, id, { targetCardinality: "0..*" });
+  assert.equal(filled.edges[0].targetCardinality, "0..*");
+  assert.notEqual(filled.edges[0].sourceCardinality, null);
+
+  const one = addEdge(base, "usuario", "pedido", { sourceCardinality: "1", targetCardinality: null });
+  assert.equal(one.ok, true);
+  if (!one.ok) return;
+  const added = one.value.edges[one.value.edges.length - 1];
+  assert.equal(added.sourceCardinality, null);
+  assert.equal(added.targetCardinality, null);
+});
+
+test("validate refuses a relation with a single cardinality", () => {
+  const base = fixture();
+  const mixed = { ...base, edges: [{ ...base.edges[0], sourceCardinality: "1" as const, targetCardinality: null }] };
+  const result = validate(mixed);
+
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.ok(result.error.includes(base.edges[0].id), result.error);
+});
+
+test("a relation whose cardinalities were cleared survives serialize and parse", () => {
+  const base = fixture();
+  const cleared = updateEdge(base, base.edges[0].id, { targetCardinality: null });
+  const parsed = parse(serialize(cleared));
+
+  assert.equal(parsed.ok, true);
+  if (!parsed.ok || parsed.value.kind === "state") return;
+  assert.equal(parsed.value.edges[0].sourceCardinality, null);
+  assert.equal(parsed.value.edges[0].targetCardinality, null);
+  assert.equal(serialize(parsed.value), serialize(cleared));
 });

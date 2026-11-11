@@ -1,11 +1,13 @@
 import { slugify, uniqueId } from "./model.ts";
 import type {
+  Cardinality,
   ClassDiagramKind,
   Diagram,
   DiagramField,
   ErDiagram,
   ErNode,
   RelationEdge,
+  RelationKind,
   Result,
   StateDiagram,
   StateNode,
@@ -150,6 +152,31 @@ function escapeQuoted(value: string): string {
   return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
+/**
+ * Arrow tokens of the arrow form. `--` is a plain association and `-->` a directed
+ * one (navigability), which UML treats as a different relation.
+ */
+const ARROW_RELATIONS: ReadonlyMap<string, RelationKind> = new Map([
+  ["--", "association"],
+  ["-->", "directed-association"],
+  ["<|--", "generalization"],
+  ["<..", "realization"],
+  ["*--", "composition"],
+  ["o--", "aggregation"],
+  ["..>", "dependency"],
+]);
+
+/** The one arrow token written for each relation kind. */
+const RELATION_ARROWS: Record<RelationKind, string> = {
+  association: "--",
+  "directed-association": "-->",
+  generalization: "<|--",
+  realization: "<..",
+  composition: "*--",
+  aggregation: "o--",
+  dependency: "..>",
+};
+
 function parseErDiagram(text: string): ErDiagram {
   const lines = text.split(/\r?\n/);
   let kind: ClassDiagramKind = "er";
@@ -245,26 +272,51 @@ function parseErDiagram(text: string): ErDiagram {
 
   for (const relation of relations) {
     const { line, tokens } = relation;
-    if (tokens.length < 5) {
-      throw new DslError(line, 'a relation needs the shape "<from> <cardinality> -- <cardinality> <to>"');
-    }
-    const [from, sourceCardinality, dash, targetCardinality, to] = tokens;
-    if (dash.quoted || dash.value !== "--") {
-      throw new DslError(line, 'expected "--" between the two cardinalities');
-    }
-    const fromCard = normalizeCardinality(sourceCardinality.value);
-    if (!fromCard) {
-      throw new DslError(line, `unknown cardinality "${sourceCardinality.value}"`);
-    }
-    const toCard = normalizeCardinality(targetCardinality.value);
-    if (!toCard) {
-      throw new DslError(line, `unknown cardinality "${targetCardinality.value}"`);
+    const arrow = tokens.length >= 3 && !tokens[1].quoted ? ARROW_RELATIONS.get(tokens[1].value) : undefined;
+    let kindOfRelation: RelationKind = "association";
+    let fromCard: Cardinality | null = null;
+    let toCard: Cardinality | null = null;
+    let from: Token;
+    let to: Token;
+    let rest: Token[];
+
+    if (arrow) {
+      kindOfRelation = arrow;
+      from = tokens[0];
+      to = tokens[2];
+      rest = tokens.slice(3);
+    } else {
+      // Not an arrow: either the ER shape, or a token that is neither.
+      const looksLikeEr = tokens.length >= 3 && normalizeCardinality(tokens[1].value) !== null;
+      if (tokens.length < 3 || (tokens.length < 5 && looksLikeEr)) {
+        throw new DslError(line, 'a relation needs the shape "<from> <cardinality> -- <cardinality> <to>"');
+      }
+      if (tokens.length < 5 || (!looksLikeEr && tokens[2].value !== "--")) {
+        throw new DslError(
+          line,
+          `unknown relation arrow "${tokens[1].value}" (expected ${[...ARROW_RELATIONS.keys()].join(", ")} or "<cardinality> -- <cardinality>")`,
+        );
+      }
+      const [first, sourceCardinality, dash, targetCardinality, last] = tokens;
+      if (dash.quoted || dash.value !== "--") {
+        throw new DslError(line, 'expected "--" between the two cardinalities');
+      }
+      fromCard = normalizeCardinality(sourceCardinality.value);
+      if (!fromCard) {
+        throw new DslError(line, `unknown cardinality "${sourceCardinality.value}"`);
+      }
+      toCard = normalizeCardinality(targetCardinality.value);
+      if (!toCard) {
+        throw new DslError(line, `unknown cardinality "${targetCardinality.value}"`);
+      }
+      from = first;
+      to = last;
+      rest = tokens.slice(5);
     }
 
     const source = resolve(from, line);
     const target = resolve(to, line);
 
-    const rest = tokens.slice(5);
     let label = "";
     if (rest.length > 0) {
       if (!rest[0].quoted && rest[0].value === ":") rest.shift();
@@ -277,6 +329,7 @@ function parseErDiagram(text: string): ErDiagram {
       id,
       source: source.id,
       target: target.id,
+      relation: kindOfRelation,
       sourceCardinality: fromCard,
       targetCardinality: toCard,
       label,
@@ -485,9 +538,14 @@ function serializeEr(diagram: ErDiagram): string {
 
   for (const edge of diagram.edges) {
     const label = edge.label === "" ? "" : ` : "${escapeQuoted(edge.label)}"`;
-    blocks.push(
-      `${formatBareName(nameOf(edge.source))} ${edge.sourceCardinality} -- ${edge.targetCardinality} ${formatBareName(nameOf(edge.target))}${label}`,
-    );
+    const from = formatBareName(nameOf(edge.source));
+    const to = formatBareName(nameOf(edge.target));
+    // The ER idiom states both ends; anything else is written with its arrow.
+    const middle =
+      edge.relation === "association" && edge.sourceCardinality !== null && edge.targetCardinality !== null
+        ? `${edge.sourceCardinality} -- ${edge.targetCardinality}`
+        : RELATION_ARROWS[edge.relation];
+    blocks.push(`${from} ${middle} ${to}${label}`);
   }
 
   return `${blocks.join("\n\n")}\n`;

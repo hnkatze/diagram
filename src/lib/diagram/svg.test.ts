@@ -16,6 +16,7 @@ import type {
   DiagramNode,
   ErDiagram,
   StateDiagram,
+  RelationKind,
   StateNode,
   Transition,
 } from "./types.ts";
@@ -44,6 +45,7 @@ const edge = (over: Partial<DiagramEdge> = {}): DiagramEdge => ({
   id: "usuario->pedido",
   source: "usuario",
   target: "pedido",
+  relation: "association",
   sourceCardinality: "1",
   targetCardinality: "0..*",
   label: "realiza",
@@ -429,4 +431,94 @@ test("a diagram with only an initial state is still a valid document", () => {
   assert.ok(svg.startsWith("<svg"));
   assert.ok(svg.endsWith("</svg>"));
   assert.match(svg, /<circle /);
+});
+
+const classWith = (relation: RelationKind, over: Partial<DiagramEdge> = {}): ErDiagram =>
+  diagram({
+    kind: "uml-class",
+    edges: [edge({ relation, sourceCardinality: null, targetCardinality: null, label: "", ...over })],
+  });
+
+const markerOf = (svg: string, relation: RelationKind): string => {
+  const found = svg.match(new RegExp(`<path class="marker marker-${relation}"[^>]*/>`));
+  assert.ok(found, `no marker-${relation} in the output`);
+  return found[0];
+};
+
+const fillOf = (path: string): string | undefined => path.match(/ fill="([^"]*)"/)?.[1];
+
+test("a generalization draws a hollow triangle in the background colour", () => {
+  const path = markerOf(toSvg(classWith("generalization")), "generalization");
+
+  assert.equal(fillOf(path), "#0a0a0a");
+  assert.match(path, /stroke="#8f8f8f"/);
+  assert.equal((path.match(/ L /g) ?? []).length, 2);
+});
+
+test("a composition draws a diamond filled with the line colour", () => {
+  const path = markerOf(toSvg(classWith("composition")), "composition");
+
+  assert.equal(fillOf(path), "#8f8f8f");
+  assert.equal((path.match(/ L /g) ?? []).length, 3);
+});
+
+test("an aggregation draws a hollow diamond, unlike the composition", () => {
+  const svg = toSvg(classWith("aggregation"));
+  const hollow = markerOf(svg, "aggregation");
+  const filled = markerOf(toSvg(classWith("composition")), "composition");
+
+  assert.equal(fillOf(hollow), "#0a0a0a");
+  assert.notEqual(fillOf(hollow), fillOf(filled));
+});
+
+test("a realization draws a hollow triangle on a dashed line", () => {
+  const svg = toSvg(classWith("realization"));
+
+  assert.equal(fillOf(markerOf(svg, "realization")), "#0a0a0a");
+  assert.match(svg, /<line [^>]*stroke-dasharray="6 4"/);
+});
+
+test("a dependency draws an open arrow on a dashed line", () => {
+  const svg = toSvg(classWith("dependency"));
+
+  assert.equal(fillOf(markerOf(svg, "dependency")), "none");
+  assert.match(svg, /<line [^>]*stroke-dasharray="6 4"/);
+});
+
+test("a plain association draws no marker and no dash", () => {
+  const svg = toSvg(diagram());
+
+  assert.doesNotMatch(svg, /class="marker/);
+  assert.doesNotMatch(svg, /stroke-dasharray/);
+});
+
+test("the line stops short of the marker it leads to", () => {
+  const plain = toSvg(classWith("association"));
+  const marked = toSvg(classWith("generalization"));
+
+  assert.notEqual(plain.match(/<line [^>]*\/>/)?.[0], marked.match(/<line [^>]*\/>/)?.[0]);
+});
+
+test("the light theme draws the same markers with light colours", () => {
+  const dark = markerOf(toSvg(classWith("generalization")), "generalization");
+  const light = markerOf(toSvg(classWith("generalization"), { theme: "light" }), "generalization");
+
+  assert.equal(fillOf(light), "#ffffff");
+  assert.equal(dark.match(/ d="([^"]*)"/)?.[1], light.match(/ d="([^"]*)"/)?.[1]);
+  assert.match(light, /stroke="#64748b"/);
+});
+
+test("a relation with null cardinalities renders no cardinality text", () => {
+  const svg = toSvg(classWith("generalization", { label: "es un" }));
+
+  assert.doesNotMatch(svg, /class="c"/);
+  assert.doesNotMatch(svg, /null/);
+  assert.match(svg, />es un</);
+});
+
+test("a directed association draws an open arrow on a solid line", () => {
+  const svg = toSvg(classWith("directed-association"));
+
+  assert.equal(fillOf(markerOf(svg, "directed-association")), "none");
+  assert.doesNotMatch(svg, /stroke-dasharray/);
 });

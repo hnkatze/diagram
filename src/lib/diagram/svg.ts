@@ -6,22 +6,29 @@ import {
   PSEUDO_STATE_SIZE,
   ROW_FONT_SIZE,
   STATE_NAME_FONT_SIZE,
+  EDGE_DASH,
   borderPoint,
   bounds,
   cardinalityPoints,
+  cardinalityLabel,
+  edgeMarker,
   estimateTextWidth,
   formatFieldLabel,
+  markerEnd,
   measureNode,
   measureState,
 } from "./measure.ts";
+import type { EdgeMarker } from "./measure.ts";
 import { isStateDiagram } from "./types.ts";
 import type {
   Diagram,
   DiagramKind,
   ErDiagram,
   ErNode,
+  Point,
   Rect,
   RelationEdge,
+  RelationKind,
   Size,
   StateDiagram,
   StateNode,
@@ -259,9 +266,17 @@ function renderEdge(edge: RelationEdge, boxes: Map<string, Rect>, frame: Frame):
   const from = borderPoint(source, target.x + target.width / 2, target.y + target.height / 2);
   const to = borderPoint(target, source.x + source.width / 2, source.y + source.height / 2);
 
+  // The marker sits on the border point; the line stops where the marker's base is.
+  const end = markerEnd(edge.relation);
+  const marker = end === "source" ? edgeMarker(edge.relation, from, to) : end === "target" ? edgeMarker(edge.relation, to, from) : null;
+  const lineFrom = end === "source" && marker ? insetPoint(from, to, marker.inset) : from;
+  const lineTo = end === "target" && marker ? insetPoint(to, from, marker.inset) : to;
+  const dash = marker?.dashed ? ` stroke-dasharray="${EDGE_DASH}"` : "";
+
   parts.push(
-    `<line x1="${round(from.x)}" y1="${round(from.y)}" x2="${round(to.x)}" y2="${round(to.y)}" stroke="${palette.edge}" stroke-width="1.5"/>`,
+    `<line x1="${round(lineFrom.x)}" y1="${round(lineFrom.y)}" x2="${round(lineTo.x)}" y2="${round(lineTo.y)}" stroke="${palette.edge}" stroke-width="1.5"${dash}/>`,
   );
+  if (marker) parts.push(renderMarker(edge.relation, marker, frame));
 
   const cards = cardinalityPoints(from, to, source, target);
 
@@ -270,12 +285,18 @@ function renderEdge(edge: RelationEdge, boxes: Map<string, Rect>, frame: Frame):
   const targetCardX = round(cards.target.x);
   const targetCardY = round(cards.target.y);
 
-  parts.push(
-    `<text class="c" x="${sourceCardX}" y="${sourceCardY}" text-anchor="middle">${escapeXml(edge.sourceCardinality)}</text>`,
-  );
-  parts.push(
-    `<text class="c" x="${targetCardX}" y="${targetCardY}" text-anchor="middle">${escapeXml(edge.targetCardinality)}</text>`,
-  );
+  const sourceText = cardinalityLabel(edge.sourceCardinality);
+  if (sourceText !== "") {
+    parts.push(
+      `<text class="c" x="${sourceCardX}" y="${sourceCardY}" text-anchor="middle">${escapeXml(sourceText)}</text>`,
+    );
+  }
+  const targetText = cardinalityLabel(edge.targetCardinality);
+  if (targetText !== "") {
+    parts.push(
+      `<text class="c" x="${targetCardX}" y="${targetCardY}" text-anchor="middle">${escapeXml(targetText)}</text>`,
+    );
+  }
 
   if (edge.label !== "") {
     const midX = round((from.x + to.x) / 2);
@@ -284,6 +305,22 @@ function renderEdge(edge: RelationEdge, boxes: Map<string, Rect>, frame: Frame):
   }
 
   return parts.join("");
+}
+
+/** Point `distance` along the line from `point` towards `towards`. */
+function insetPoint(point: Point, towards: Point, distance: number): Point {
+  const length = Math.hypot(towards.x - point.x, towards.y - point.y) || 1;
+  return {
+    x: point.x + ((towards.x - point.x) / length) * distance,
+    y: point.y + ((towards.y - point.y) / length) * distance,
+  };
+}
+
+/** A marker is an inline path, so it is deterministic and needs no `<defs>`. */
+function renderMarker(relation: RelationKind, marker: EdgeMarker, frame: Frame): string {
+  const palette = frame.palette;
+  const fill = marker.fill === "line" ? palette.edge : marker.fill === "background" ? escapeXml(frame.background) : "none";
+  return `<path class="marker marker-${relation}" d="${marker.path}" fill="${fill}" stroke="${palette.edge}" stroke-width="1.5" stroke-linejoin="round"/>`;
 }
 
 function renderNode(node: ErNode, box: Rect, kind: DiagramKind, palette: Palette): string {

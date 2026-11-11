@@ -57,6 +57,34 @@ Usuario 1..* -- 0..1 Pedido : "realiza"
   `pk`, `fk`, `uk`, `nullable`, in any order and freely combinable.
 - A relation is `<From> <card> -- <card> <To> : "<label>"`; the label and its `: "..."`
   part are optional. Cardinalities are `1`, `0..1`, `1..*`, `0..*`. Self-relations are allowed.
+- A relation can also be written with an arrow, `<From> <arrow> <To>`, which states no
+  cardinality. The arrow names the relation and where its marker is drawn:
+
+  | Arrow | Relation | Marker |
+  |-------|----------|--------|
+  | `--` | association | plain line |
+  | `-->` | directed association | open arrow at `<To>`, solid line |
+  | `<\|--` | generalization | hollow triangle at `<From>` (the parent) |
+  | `<..` | realization | hollow triangle at `<From>` (the interface), dashed line |
+  | `*--` | composition | filled diamond at `<From>` (the whole) |
+  | `o--` | aggregation | hollow diamond at `<From>` (the whole) |
+  | `..>` | dependency | open arrow at `<To>`, dashed line |
+
+  ```
+  diagram uml "Animales"
+
+  entity Animal {
+    + nombre text
+  }
+
+  entity Perro {
+    + raza text
+  }
+
+  Animal <|-- Perro : "es un"
+  ```
+
+  Both forms work in every class diagram, so an existing `er` document is unchanged.
 - `//` comments anywhere; `#` only outside an entity block, where `#` is the protected
   glyph. Blank lines are ignored. Quoted names and labels support `\"` escapes.
 
@@ -114,6 +142,7 @@ format. The app shell is always dark, so this only decides what the delivered fi
 
 The file name is the slug of the diagram title (`untitled` when empty). The image has a solid
 background, the title, every entity with its fields, and every relation with label and cardinalities.
+The relation markers (triangles, diamonds, open arrows and dashed lines) appear in the exported image too.
 
 `toSvg` paints the dark palette by default, so the exported file matches the screen;
 `toSvg(diagram, { theme: "light" })` is the light version, and an explicit `background` option still

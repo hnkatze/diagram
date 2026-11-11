@@ -7,9 +7,10 @@ import type {
   ErNode,
   Point,
   RelationEdge,
+  RelationKind,
   Result,
 } from "./types.ts";
-import { DEFAULT_CARDINALITY, err, isCardinality, ok } from "./types.ts";
+import { DEFAULT_CARDINALITY, err, isCardinality, isRelationKind, ok } from "./types.ts";
 
 /** Lowercase, dashed, accent-free id derived from an entity name. */
 export function slugify(name: string): string {
@@ -140,8 +141,9 @@ export function deleteField(diagram: ErDiagram, nodeId: string, index: number): 
 
 export interface EdgeOptions {
   label?: string;
-  sourceCardinality?: Cardinality;
-  targetCardinality?: Cardinality;
+  relation?: RelationKind;
+  sourceCardinality?: Cardinality | null;
+  targetCardinality?: Cardinality | null;
 }
 
 export function addEdge(diagram: ErDiagram, source: string, target: string, options: EdgeOptions = {}): Result<ErDiagram> {
@@ -152,17 +154,42 @@ export function addEdge(diagram: ErDiagram, source: string, target: string, opti
     id,
     source,
     target,
-    sourceCardinality: options.sourceCardinality ?? DEFAULT_CARDINALITY,
-    targetCardinality: options.targetCardinality ?? DEFAULT_CARDINALITY,
+    relation: options.relation ?? "association",
+    ...bothOrNone(options.sourceCardinality, options.targetCardinality),
     label: options.label ?? "",
   };
   return ok({ ...diagram, edges: [...diagram.edges, edge] });
 }
 
+/**
+ * A relation states a cardinality on both ends or on neither. `null` clears both,
+ * and a value on one end fills the other with the default instead of leaving it empty.
+ */
+function bothOrNone(
+  source: Cardinality | null | undefined,
+  target: Cardinality | null | undefined,
+): Pick<RelationEdge, "sourceCardinality" | "targetCardinality"> {
+  if (source === null || target === null) return { sourceCardinality: null, targetCardinality: null };
+  return { sourceCardinality: source ?? DEFAULT_CARDINALITY, targetCardinality: target ?? DEFAULT_CARDINALITY };
+}
+
 export function updateEdge(diagram: ErDiagram, edgeId: string, patch: Partial<RelationEdge>): ErDiagram {
+  const touchesCardinality = "sourceCardinality" in patch || "targetCardinality" in patch;
   return {
     ...diagram,
-    edges: diagram.edges.map((edge) => (edge.id === edgeId ? { ...edge, ...patch } : edge)),
+    edges: diagram.edges.map((edge) => {
+      if (edge.id !== edgeId) return edge;
+      const merged = { ...edge, ...patch };
+      if (!touchesCardinality) return merged;
+      // Only a `null` in the patch clears the relation; a `null` already stored is just "not stated yet".
+      const cleared = patch.sourceCardinality === null || patch.targetCardinality === null;
+      return {
+        ...merged,
+        ...(cleared
+          ? bothOrNone(null, null)
+          : bothOrNone(merged.sourceCardinality ?? undefined, merged.targetCardinality ?? undefined)),
+      };
+    }),
   };
 }
 
@@ -197,8 +224,15 @@ export function validate(diagram: ErDiagram): Result<ErDiagram> {
   }
 
   for (const edge of diagram.edges) {
-    if (!isCardinality(edge.sourceCardinality) || !isCardinality(edge.targetCardinality)) {
+    if (!isRelationKind(edge.relation)) {
+      return err(`Relation "${edge.id}" has an unknown relation "${String(edge.relation)}"`);
+    }
+    const invalid = (cardinality: string | null): boolean => cardinality !== null && !isCardinality(cardinality);
+    if (invalid(edge.sourceCardinality) || invalid(edge.targetCardinality)) {
       return err(`Relation "${edge.id}" has an invalid cardinality`);
+    }
+    if ((edge.sourceCardinality === null) !== (edge.targetCardinality === null)) {
+      return err(`Relation "${edge.id}" states a cardinality on only one end`);
     }
     if (!ids.has(edge.source)) return err(`Relation "${edge.id}" points to unknown entity "${edge.source}"`);
     if (!ids.has(edge.target)) return err(`Relation "${edge.id}" points to unknown entity "${edge.target}"`);

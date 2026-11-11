@@ -1,5 +1,16 @@
 import { isStateDiagram } from "./types.ts";
-import type { Diagram, DiagramField, DiagramKind, ErNode, Point, Rect, Size, StateNode } from "./types.ts";
+import type {
+  Cardinality,
+  Diagram,
+  DiagramField,
+  DiagramKind,
+  ErNode,
+  Point,
+  Rect,
+  RelationKind,
+  Size,
+  StateNode,
+} from "./types.ts";
 
 /**
  * Node geometry is shared by the canvas and the image exporter so both agree
@@ -140,6 +151,98 @@ export function cardinalityPoints(
       x: to.x - unitX * CARDINALITY_INSET + perpX * targetSign,
       y: to.y - unitY * CARDINALITY_INSET + perpY * targetSign,
     },
+  };
+}
+
+/** Open arrow: 10 long, 7 half-width. */
+const ARROW_LENGTH = 10;
+const ARROW_HALF_WIDTH = 7;
+/** Hollow triangle: 12 long, 12 half-width. */
+const TRIANGLE_LENGTH = 12;
+const TRIANGLE_HALF_WIDTH = 12;
+/** Diamond: 14 long, 9 half-width. */
+const DIAMOND_LENGTH = 14;
+const DIAMOND_HALF_WIDTH = 9;
+
+export interface EdgeMarker {
+  /** Path data for the marker outline, in absolute document coordinates. */
+  path: string;
+  /** Fill for the path: the line colour for a filled diamond, the background for hollow shapes, `none` for an open arrow. */
+  fill: "line" | "background" | "none";
+  /** How far the line must stop short of the endpoint so it does not poke through the marker. */
+  inset: number;
+  /** True for realization and dependency. */
+  dashed: boolean;
+}
+
+/** Dash pattern of a realization or dependency line, for both surfaces. */
+export const EDGE_DASH = "6 4";
+
+/** Realization and dependency are drawn on a dashed line; a directed association is solid. */
+export function relationIsDashed(relation: RelationKind): boolean {
+  return relation === "realization" || relation === "dependency";
+}
+
+/**
+ * Which end of the edge carries the marker: the parent, interface or whole of
+ * generalization, realization, composition and aggregation is the source, the
+ * arrow of a dependency or directed association points at the target, and a plain association has none.
+ */
+export function markerEnd(relation: RelationKind): "source" | "target" | null {
+  if (relation === "association") return null;
+  return relation === "dependency" || relation === "directed-association" ? "target" : "source";
+}
+
+/** Text for one end of a relation; a cardinality that was not stated renders nothing. */
+export function cardinalityLabel(cardinality: Cardinality | null): string {
+  return cardinality ?? "";
+}
+
+/**
+ * The marker at one end of a relation. `point` is the endpoint on the box
+ * border and `towards` the other end of the edge: the tip sits on `point` and
+ * the base lies back along the line. Canvas and exporter both draw this.
+ */
+export function edgeMarker(relation: RelationKind, point: Point, towards: Point): EdgeMarker | null {
+  if (relation === "association") return null;
+
+  const dx = towards.x - point.x;
+  const dy = towards.y - point.y;
+  const length = Math.hypot(dx, dy) || 1;
+  // Unit vector from the tip back along the line, and its left normal.
+  const backX = dx / length;
+  const backY = dy / length;
+  const sideX = -backY;
+  const sideY = backX;
+
+  const at = (along: number, across: number): string =>
+    `${roundPoint(point.x + backX * along + sideX * across)} ${roundPoint(point.y + backY * along + sideY * across)}`;
+  const tip = `M ${roundPoint(point.x)} ${roundPoint(point.y)}`;
+  const dashed = relationIsDashed(relation);
+
+  if (relation === "dependency" || relation === "directed-association") {
+    return {
+      path: `${tip} L ${at(ARROW_LENGTH, ARROW_HALF_WIDTH)} M ${roundPoint(point.x)} ${roundPoint(point.y)} L ${at(ARROW_LENGTH, -ARROW_HALF_WIDTH)}`,
+      fill: "none",
+      inset: 0,
+      dashed,
+    };
+  }
+
+  if (relation === "composition" || relation === "aggregation") {
+    return {
+      path: `${tip} L ${at(DIAMOND_LENGTH / 2, DIAMOND_HALF_WIDTH)} L ${at(DIAMOND_LENGTH, 0)} L ${at(DIAMOND_LENGTH / 2, -DIAMOND_HALF_WIDTH)} Z`,
+      fill: relation === "composition" ? "line" : "background",
+      inset: DIAMOND_LENGTH,
+      dashed,
+    };
+  }
+
+  return {
+    path: `${tip} L ${at(TRIANGLE_LENGTH, TRIANGLE_HALF_WIDTH)} L ${at(TRIANGLE_LENGTH, -TRIANGLE_HALF_WIDTH)} Z`,
+    fill: "background",
+    inset: TRIANGLE_LENGTH,
+    dashed,
   };
 }
 

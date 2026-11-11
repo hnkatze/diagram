@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 
 import { parse, serialize } from "./dsl.ts";
 import { moveNode } from "./model.ts";
-import type { ErDiagram, StateDiagram } from "./types.ts";
+import type { ErDiagram, RelationKind, StateDiagram } from "./types.ts";
+import { RELATION_KINDS } from "./types.ts";
 import { isErDiagram, isStateDiagram } from "./types.ts";
 
 const SAMPLE = `diagram er "Tienda"
@@ -62,6 +63,7 @@ test("parses the documented sample into the expected structure", () => {
       id: "usuario->pedido",
       source: "usuario",
       target: "pedido",
+      relation: "association",
       sourceCardinality: "1..*",
       targetCardinality: "0..1",
       label: "realiza",
@@ -364,4 +366,103 @@ test("headerless ER text still defaults to er and round trips identically", () =
   const text = serialize(diagram);
   assert.match(text, /^diagram er ""/);
   assert.equal(serialize(mustParse(text)), text);
+});
+
+const ARROWS: [string, RelationKind][] = [
+  ["--", "association"],
+  ["-->", "directed-association"],
+  ["<|--", "generalization"],
+  ["<..", "realization"],
+  ["*--", "composition"],
+  ["o--", "aggregation"],
+  ["..>", "dependency"],
+];
+
+const ARROW_HEADER = "diagram uml \"X\"\n\nentity A {\n}\n\nentity B {\n}\n\n";
+
+for (const [token, relation] of ARROWS) {
+  test(`the arrow ${token} parses to a ${relation} relation`, () => {
+    const diagram = mustParse(`${ARROW_HEADER}A ${token} B`);
+
+    assert.equal(diagram.edges.length, 1);
+    assert.equal(diagram.edges[0].relation, relation);
+    assert.equal(diagram.edges[0].source, "a");
+    assert.equal(diagram.edges[0].target, "b");
+  });
+}
+
+test("an arrow relation states no cardinality and keeps its label", () => {
+  const diagram = mustParse(`${ARROW_HEADER}A <|-- B : "es un"`);
+
+  assert.equal(diagram.edges[0].sourceCardinality, null);
+  assert.equal(diagram.edges[0].targetCardinality, null);
+  assert.equal(diagram.edges[0].label, "es un");
+});
+
+test("an ER relation is an association with both cardinalities", () => {
+  const diagram = mustParse(`${ARROW_HEADER}A 1 -- 0..* B`);
+
+  assert.equal(diagram.edges[0].relation, "association");
+  assert.equal(diagram.edges[0].sourceCardinality, "1");
+  assert.equal(diagram.edges[0].targetCardinality, "0..*");
+});
+
+test("arrows round trip through serialize for every relation kind", () => {
+  for (const relation of RELATION_KINDS) {
+    const token = ARROWS.find(([, kind]) => kind === relation)?.[0] ?? "--";
+    const first = mustParse(`${ARROW_HEADER}A ${token} B : "x"`);
+    const text = serialize(first);
+    const second = mustParse(text);
+
+    assert.deepEqual(second, first, relation);
+    assert.equal(second.edges[0].relation, relation);
+    assert.equal(serialize(second), text, relation);
+  }
+});
+
+test("each relation kind serializes with its own arrow", () => {
+  const diagram = mustParse(`${ARROW_HEADER}A --> B\nA <|-- B\nA <.. B\nA *-- B\nA o-- B\nA ..> B`);
+  const text = serialize(diagram);
+
+  for (const token of ["A --> B", "A <|-- B", "A <.. B", "A *-- B", "A o-- B", "A ..> B"]) {
+    assert.ok(text.includes(token), token);
+  }
+});
+
+test("an unknown arrow token is an error that names the token", () => {
+  const error = mustFail(`${ARROW_HEADER}A ==> B`);
+
+  assert.match(error, /^Line 9: /);
+  assert.ok(error.includes('"==>"'), error);
+  assert.ok(error.includes("<|--"), error);
+});
+
+test("a relation line with fewer than three tokens still fails with a named error", () => {
+  assert.match(mustFail(`${ARROW_HEADER}A B`), /a relation needs the shape/);
+});
+
+test("an existing ER document parses and serializes to the same text", () => {
+  const text = serialize(mustParse(SAMPLE));
+
+  assert.match(text, /Usuario 1\.\.\* -- 0\.\.1 Pedido : "realiza"/);
+  assert.equal(serialize(mustParse(text)), text);
+  assert.equal(mustParse(text).edges[0].relation, "association");
+});
+
+test("-- stays a plain association and --> is a different relation", () => {
+  const plain = mustParse(`${ARROW_HEADER}A -- B`).edges[0];
+  const directed = mustParse(`${ARROW_HEADER}A --> B`).edges[0];
+
+  assert.equal(plain.relation, "association");
+  assert.equal(directed.relation, "directed-association");
+  assert.ok(serialize(mustParse(`${ARROW_HEADER}A -- B`)).includes("A -- B"));
+  assert.ok(!serialize(mustParse(`${ARROW_HEADER}A -- B`)).includes("-->"));
+});
+
+test("an association with one cardinality cannot be written, and the stable form round trips", () => {
+  const diagram = mustParse(`${ARROW_HEADER}A -- B`);
+  const first = serialize(diagram);
+
+  assert.deepEqual(mustParse(first), diagram);
+  assert.equal(serialize(mustParse(first)), first);
 });
