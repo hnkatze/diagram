@@ -90,9 +90,9 @@ export function DiagramCanvas({ diagram, selectedId, onSelect, onMove, onConnect
       minZoom={0.2}
       maxZoom={2.5}
       proOptions={{ hideAttribution: false }}
-      className="bg-slate-50"
+      className="bg-background"
     >
-      <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#cbd5e1" />
+      <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="var(--muted-foreground)" />
       <Controls showInteractive={false} />
     </ReactFlow>
   );

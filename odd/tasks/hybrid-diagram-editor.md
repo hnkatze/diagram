@@ -54,15 +54,17 @@ Rules: `diagram <kind> "<title>"` opens the file and is optional (defaults to `e
 
 | ID | Task | Specs | Route | Commit |
 |----|------|-------|-------|--------|
-| T1 | Model + geometry contract (`types.ts`, `measure.ts`, `model.ts`) | S2, S3, S4, S7, S8 | inline | yes |
-| T2 | DSL parser + serializer + tests | S5, S6, S7 | worker | yes |
-| T3 | SVG exporter + tests | S9 | worker | yes |
-| T4 | dagre layout + tests | S8 | worker | yes |
-| T5 | Canvas: entity nodes, field editor, relation edges, toolbar shell | S1, S3, S4 | worker | yes |
-| T6 | Text panel + sync + error surface | S1, S6, S7 | worker | yes |
-| T7 | Export UI (PNG 1x/2x/3x, SVG), persistence, JSON import/export, undo/redo | S9, S10 | inline | yes |
-| T8 | Samples, empty/first-run state, README, final verification | S11 | inline | yes |
-| T9 | Dark everywhere: semantic tokens, canvas and controls, export palette | S12 | worker | yes |
+| T1 | Model + geometry contract (`types.ts`, `measure.ts`, `model.ts`) | S2, S3, S4, S7, S8 | inline | `31446a4` |
+| T2 | DSL parser + serializer + tests | S5, S6, S7 | inline | `31446a4` |
+| T3 | SVG exporter + tests | S9 | inline | `74206e1` |
+| T4 | dagre layout + tests | S8 | inline | `74206e1` |
+| T5 | Canvas: entity nodes, relation edges, toolbar shell | S1, S3, S4 | inline | `5d31dd9` |
+| T6 | Text panel + sync + error surface | S1, S6, S7 | inline | `3265067` |
+| T7 | Export UI (PNG 1x/2x/3x, SVG), persistence, undo/redo, JSON import | S9, S10 | inline | `ff3c1f0` + `3265067` |
+| T8 | Samples, first-run state, README, build + server verification | S11 | worker | `29320bb` |
+| T9 | Dark everywhere (S12) plus the JSON export the toolbar is still missing (S10 gap found by T8) | S10, S12 | worker | pending |
+| T10 | Browser verification of the dark shell, typefaces and layout | S12 | inline | pending |
+| T11 | Edge endpoints on the box border from shared geometry, so relation cardinalities are never hidden by an entity | S4, S9, S12 | worker | pending |
 
 ## Log
 
@@ -83,3 +85,7 @@ L7 (correction, parent): implementing S5 surfaced a conflict between the `#` lin
 L8 (user, verbatim): "solo falta que los estilos tengan sentido, pongamos darkmode siempre en este proyecto pls"
 
 L9 (decision, parent): L8 resolves to one permanent dark theme rather than a theme toggle, and the exported image follows it by default so the file matches the screen; `theme: "light"` stays as an explicit export option for print.
+
+L10 (evidence, T8): `npm run build` exit 0 on Next 16.4.6 + Turbopack with `.ts`-extension relative imports, CSS imported from a client component and the shadcn CSS imports; `npm test` 82/82; dev server answered 200 with the editor shell. T8 also found that spec S10 requires JSON **export** from the toolbar and only JSON **import** was wired — reopened as part of T9.
+
+L11 (defect, parent, found in the browser): relation endpoints were anchored to fixed `Right`/`Left` handles, so an edge leaving a box's right handle towards a target on the left runs back across its own box and the source cardinality renders underneath the entity. Verified in the DOM: the `1` element measured at x 407..411 while the entity box ended at x 412. The exported SVG never had this bug because it clips the line to the rectangle. Decision: move the border-intersection maths into the shared geometry module and use it on the canvas too, so both surfaces resolve endpoints the same way instead of teaching the canvas a second rule.

@@ -133,6 +133,26 @@ test("canvas size matches the shared geometry", () => {
   assert.equal(measureNode(node(), "er").height, 72);
 });
 
+test("the image is dark by default, light on demand, and an explicit background wins", () => {
+  const backdrop = (svg: string): string | undefined =>
+    /<rect x="0" y="0"[^>]*fill="([^"]+)"/.exec(svg)?.[1];
+
+  const byDefault = toSvg(diagram());
+  assert.equal(backdrop(byDefault), "#0a0a0a");
+  assert.equal(byDefault, toSvg(diagram(), { theme: "dark" }));
+
+  const print = toSvg(diagram(), { theme: "light" });
+  assert.equal(backdrop(print), "#ffffff");
+  assert.notEqual(print, byDefault);
+
+  assert.equal(backdrop(toSvg(diagram(), { theme: "light", background: "#123456" })), "#123456");
+  assert.equal(backdrop(toSvg(diagram(), { theme: "dark", background: "#abcdef" })), "#abcdef");
+
+  // Only colours change: the geometry is the same picture in both themes.
+  const sizeOf = (svg: string): string => /viewBox="([^"]+)"/.exec(svg)?.[1] ?? "";
+  assert.equal(sizeOf(print), sizeOf(byDefault));
+});
+
 test("uml-class diagrams keep the visibility glyph", () => {
   const uml = diagram({ kind: "uml-class", title: "Modelo" });
   assert.ok(toSvg(uml).includes(formatFieldLabel(node().fields[0], "uml-class")));

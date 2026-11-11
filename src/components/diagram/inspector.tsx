@@ -46,11 +46,11 @@ function Select({
 }) {
   return (
     <label className="flex flex-col gap-1">
-      <span className="text-[11px] font-medium text-slate-500">{label}</span>
+      <span className="text-[11px] font-medium text-muted-foreground">{label}</span>
       <select
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="h-8 w-full rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-800 outline-none focus-visible:border-slate-500"
+        className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs text-foreground outline-none focus-visible:border-ring"
       >
         {options.map((option) => (
           <option key={option.value} value={option.value}>
@@ -70,8 +70,8 @@ export function Inspector(props: InspectorProps) {
   if (!node && !edge) {
     return (
       <div className="flex h-full flex-col gap-2 p-3">
-        <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Inspector</h2>
-        <p className="text-xs leading-5 text-slate-500">
+        <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Inspector</h2>
+        <p className="text-xs leading-5 text-muted-foreground">
           Elegí una entidad o una relación en el canvas para editarla. Arrastrá desde el borde de una entidad hasta otra
           para crear una relación.
         </p>
@@ -85,16 +85,16 @@ export function Inspector(props: InspectorProps) {
     return (
       <div className="flex h-full flex-col gap-3 overflow-y-auto p-3">
         <div className="flex items-center justify-between">
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Relación</h2>
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Relación</h2>
           <Button variant="destructive" size="xs" onClick={() => props.onDeleteEdge(edge.id)}>
             Eliminar
           </Button>
         </div>
-        <p className="font-mono text-[11px] text-slate-500">
+        <p className="font-mono text-[11px] text-muted-foreground">
           {sourceName} → {targetName}
         </p>
         <label className="flex flex-col gap-1">
-          <span className="text-[11px] font-medium text-slate-500">Etiqueta</span>
+          <span className="text-[11px] font-medium text-muted-foreground">Etiqueta</span>
           <Input
             value={edge.label}
             onChange={(event) => props.onUpdateEdge(edge.id, { label: event.target.value })}
@@ -123,7 +123,7 @@ export function Inspector(props: InspectorProps) {
   return (
     <div className="flex h-full flex-col gap-3 overflow-y-auto p-3">
       <div className="flex items-center justify-between">
-        <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Entidad</h2>
+        <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Entidad</h2>
         <div className="flex gap-1">
           <Button variant="outline" size="xs" onClick={() => props.onDuplicateEntity(node.id)}>
             Duplicar
@@ -134,7 +134,7 @@ export function Inspector(props: InspectorProps) {
         </div>
       </div>
 
-      <Label className="flex flex-col gap-1 text-[11px] font-medium text-slate-500">
+      <Label className="flex flex-col gap-1 text-[11px] font-medium text-muted-foreground">
         Nombre
         <Input
           value={node.name}
@@ -146,7 +146,7 @@ export function Inspector(props: InspectorProps) {
       <Separator />
 
       <div className="flex items-center justify-between">
-        <h3 className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Campos</h3>
+        <h3 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Campos</h3>
         <Button variant="outline" size="xs" onClick={() => props.onAddField(node.id)}>
           + Campo
         </Button>
@@ -154,7 +154,7 @@ export function Inspector(props: InspectorProps) {
 
       <ul className="flex flex-col gap-2">
         {node.fields.map((field, index) => (
-          <li key={`${field.name}-${index}`} className="flex flex-col gap-1 rounded-md border border-slate-200 p-2">
+          <li key={`${field.name}-${index}`} className="flex flex-col gap-1 rounded-md border border-border p-2">
             <div className="flex gap-1">
               <Input
                 value={field.name}
@@ -215,7 +215,7 @@ export function Inspector(props: InspectorProps) {
             </div>
           </li>
         ))}
-        {node.fields.length === 0 ? <li className="text-xs text-slate-400">Sin campos todavía.</li> : null}
+        {node.fields.length === 0 ? <li className="text-xs text-muted-foreground">Sin campos todavía.</li> : null}
       </ul>
     </div>
   );

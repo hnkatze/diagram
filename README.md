@@ -3,7 +3,8 @@
 A single-page editor for entity-relationship (`er`) and UML class (`uml-class`) diagrams.
 The same diagram is authored from two synchronized surfaces: a React Flow canvas and a
 text panel in a project DSL. Canvas edits rewrite the text, valid text edits redraw the
-canvas, both read and write one `Diagram` model, and the result exports to PNG or SVG.
+canvas, both read and write one `Diagram` model, and the result exports to PNG, SVG or JSON.
+The app is dark-only by design: the screen and the exported image share one palette.
 
 ## Stack
 
@@ -62,7 +63,7 @@ the panel shows the error with its line number.
 - Canvas: click to select, drag to move, drag from a node handle to another node to create
   a relation. The inspector edits the selected entity or relation.
 - Toolbar: title, diagram kind (`ER` / `UML`), `+ Entidad`, `Acomodar` (re-run the dagre
-  layout), undo/redo, the two bundled samples, `.json` import.
+  layout), undo/redo, the two bundled samples, `.json` import and export.
 - Shortcuts: `Ctrl/Cmd+Z` undo, `Shift+Ctrl/Cmd+Z` or `Ctrl+Y` redo; ignored while a
   text field has focus.
 - The diagram autosaves to `localStorage`, is restored on reload, and a first visit shows
@@ -77,3 +78,17 @@ the panel shows the error with its line number.
 
 The file name is the slug of the diagram title (`untitled` when empty). The image has a solid
 background, the title, every entity with its fields, and every relation with label and cardinalities.
+
+The image follows the app theme: `toSvg` paints the dark palette by default, so the exported file
+matches the screen. `toSvg(diagram, { theme: "light" })` keeps a light version available for print,
+and an explicit `background` option still overrides either palette.
+
+### JSON (round trip)
+
+`Exportar JSON` next to `Importar` downloads the same `{ version: 1, diagram }` document the app
+autosaves, built by `persistence.toFile` and named `<title slug>.json` (`untitled.json` when the
+title is empty). Nothing is re-serialised for the download, so an exported file imports back into
+an identical diagram — positions and all. Importing an invalid file shows a message and leaves the
+current diagram untouched.
+
+So: `SVG` and `PNG 1x/2x/3x` are for sharing a picture, JSON is for sharing the editable diagram.

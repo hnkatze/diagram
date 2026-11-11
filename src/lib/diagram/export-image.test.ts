@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { fileNameFor, svgSize } from "./export-image.ts";
+import { fileNameFor, jsonExport, svgSize } from "./export-image.ts";
+import { fromFile, toFile } from "./persistence.ts";
 import { toSvg } from "./svg.ts";
 import type { Diagram } from "./types.ts";
 
@@ -15,6 +16,16 @@ test("the file name is the slug of the title plus the extension", () => {
 test("an untitled diagram exports as untitled", () => {
   assert.equal(fileNameFor(diagram(""), "png"), "untitled.png");
   assert.equal(fileNameFor(diagram("   "), "svg"), "untitled.svg");
+});
+
+test("the json export reuses the exchange format and the title slug", () => {
+  const target = jsonExport(diagram("Tienda Central"));
+  assert.equal(target.fileName, "tienda-central.json");
+  assert.equal(target.text, toFile(diagram("Tienda Central")));
+  const restored = fromFile(target.text);
+  assert.ok(restored.ok);
+  assert.deepEqual(restored.value, diagram("Tienda Central"));
+  assert.equal(jsonExport(diagram("")).fileName, "untitled.json");
 });
 
 test("svgSize reads the root size of an exported document", () => {

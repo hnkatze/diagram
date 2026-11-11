@@ -1,10 +1,11 @@
 import { slugify } from "./model.ts";
+import { toFile } from "./persistence.ts";
 import type { Diagram } from "./types.ts";
 
 /**
- * Image export (spec S9). `toSvg` builds the picture; this module only turns
- * that string into a downloaded file. Browser APIs stay inside function bodies
- * so the pure helpers can still be imported by tests.
+ * Image and file export (specs S9 and S10). `toSvg` builds the picture; this
+ * module only turns a payload into a downloaded file. Browser APIs stay inside
+ * function bodies so the pure helpers can still be imported by tests.
  */
 
 export interface SvgSize {
@@ -41,6 +42,20 @@ export function downloadBlob(blob: Blob, fileName: string): void {
 
 export function downloadSvg(svg: string, fileName: string): void {
   downloadBlob(new Blob([svg], { type: "image/svg+xml;charset=utf-8" }), fileName);
+}
+
+/**
+ * The `.json` download pair: the exact exchange text from `persistence.toFile`
+ * and the title slug. Nothing is re-serialised here, so the exported file imports
+ * back unchanged.
+ */
+export function jsonExport(diagram: Diagram): { text: string; fileName: string } {
+  return { text: toFile(diagram), fileName: fileNameFor(diagram, "json") };
+}
+
+export function downloadJson(diagram: Diagram): void {
+  const { text, fileName } = jsonExport(diagram);
+  downloadBlob(new Blob([text], { type: "application/json;charset=utf-8" }), fileName);
 }
 
 /** Rasterizes the whole diagram at `scale` times its vector size. */

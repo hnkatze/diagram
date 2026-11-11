@@ -23,27 +23,27 @@ function EntityNodeView({ data }: NodeProps<EntityNodeType>) {
   const { node, kind } = data;
 
   return (
-    <div className="group relative h-full w-full overflow-hidden rounded-lg border-[1.5px] border-slate-400 bg-white">
+    <div className="group relative h-full w-full overflow-hidden rounded-lg border-[1.5px] border-border bg-card">
       <Handle
         type="target"
         position={Position.Left}
-        className="!h-2.5 !w-2.5 !border-0 !bg-slate-400 opacity-0 transition-opacity group-hover:opacity-100"
+        className="!h-2.5 !w-2.5 !border-0 !bg-muted-foreground opacity-0 transition-opacity group-hover:opacity-100"
       />
       <Handle
         type="source"
         position={Position.Right}
-        className="!h-2.5 !w-2.5 !border-0 !bg-slate-400 opacity-0 transition-opacity group-hover:opacity-100"
+        className="!h-2.5 !w-2.5 !border-0 !bg-muted-foreground opacity-0 transition-opacity group-hover:opacity-100"
       />
       <div
-        className="flex items-center border-b border-slate-300 bg-indigo-50"
+        className="flex items-center border-b border-border bg-muted"
         style={{ height: NODE_HEADER_HEIGHT, paddingInline: NODE_PADDING_X }}
       >
-        <span className="truncate text-sm font-semibold text-slate-900">{node.name}</span>
+        <span className="truncate text-sm font-semibold text-card-foreground">{node.name}</span>
       </div>
       <div>
         {node.fields.length === 0 ? (
           <div
-            className="text-xs text-slate-400"
+            className="text-xs text-muted-foreground"
             style={{ height: NODE_ROW_HEIGHT, lineHeight: `${NODE_ROW_HEIGHT}px`, paddingInline: NODE_PADDING_X }}
           >
             —
@@ -52,7 +52,7 @@ function EntityNodeView({ data }: NodeProps<EntityNodeType>) {
           node.fields.map((field, index) => (
             <div
               key={`${field.name}-${index}`}
-              className="truncate font-mono text-xs text-slate-600"
+              className="truncate font-mono text-xs text-muted-foreground"
               style={{ height: NODE_ROW_HEIGHT, lineHeight: `${NODE_ROW_HEIGHT}px`, paddingInline: NODE_PADDING_X }}
             >
               {formatFieldLabel(field, kind)}
@@ -104,24 +104,24 @@ function RelationEdgeView({ sourceX, sourceY, targetX, targetY, data, selected }
         d={path}
         fill="none"
         strokeWidth={selected ? 2.5 : 1.5}
-        className={selected ? "stroke-slate-900" : "stroke-slate-400"}
+        className={selected ? "stroke-foreground" : "stroke-muted-foreground"}
       />
       <EdgeLabelRenderer>
         <span
-          className="pointer-events-none absolute text-[11px] text-slate-500"
+          className="pointer-events-none absolute text-[11px] text-muted-foreground"
           style={{ transform: `translate(-50%, -50%) translate(${sourceCardX}px, ${sourceCardY}px)` }}
         >
           {edge.sourceCardinality}
         </span>
         <span
-          className="pointer-events-none absolute text-[11px] text-slate-500"
+          className="pointer-events-none absolute text-[11px] text-muted-foreground"
           style={{ transform: `translate(-50%, -50%) translate(${targetCardX}px, ${targetCardY}px)` }}
         >
           {edge.targetCardinality}
         </span>
         {edge.label === "" ? null : (
           <span
-            className="pointer-events-none absolute rounded bg-white px-1 text-xs text-slate-700"
+            className="pointer-events-none absolute rounded bg-card px-1 text-xs text-card-foreground"
             style={{
               transform: `translate(-50%, -50%) translate(${isSelfLoop ? sourceX + SELF_LOOP_X + 24 : labelX}px, ${isSelfLoop ? sourceY - SELF_LOOP_Y * 0.75 : labelY}px)`,
             }}

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { parse, serialize } from "@/lib/diagram/dsl";
-import { downloadPng, downloadSvg, fileNameFor } from "@/lib/diagram/export-image";
+import { downloadJson, downloadPng, downloadSvg, fileNameFor } from "@/lib/diagram/export-image";
 import { canRedo, canUndo, commit, createHistory, redo, undo, type History } from "@/lib/diagram/history";
 import { layout, layoutNewNodes } from "@/lib/diagram/layout";
 import {
@@ -210,6 +210,11 @@ export function DiagramEditor() {
 
   const handleExport = useCallback(
     async (format: ExportFormat) => {
+      if (format === "json") {
+        downloadJson(diagram);
+        setMessage("JSON descargado.");
+        return;
+      }
       const svg = toSvg(diagram);
       if (format === "svg") {
         downloadSvg(svg, fileNameFor(diagram, "svg"));
@@ -244,7 +249,7 @@ export function DiagramEditor() {
   );
 
   return (
-    <div className="flex h-dvh flex-col bg-slate-100">
+    <div className="flex h-dvh flex-col bg-background">
       <Toolbar
         diagram={diagram}
         canUndo={canUndo(history)}
@@ -265,7 +270,10 @@ export function DiagramEditor() {
       />
 
       {message === null ? null : (
-        <div role="status" className="border-b border-amber-200 bg-amber-50 px-3 py-1 text-xs text-amber-900">
+        <div
+          role="status"
+          className="border-b border-amber-500/40 bg-amber-500/10 px-3 py-1 text-xs text-amber-200"
+        >
           {message}
         </div>
       )}
@@ -281,7 +289,7 @@ export function DiagramEditor() {
           />
         </main>
 
-        <aside className="flex w-[380px] shrink-0 flex-col border-l border-slate-200 bg-white">
+        <aside className="flex w-[380px] shrink-0 flex-col border-l border-border bg-card">
           <Tabs defaultValue="text" className="min-h-0 flex-1">
             <TabsList className="mx-3 mt-2 w-fit">
               <TabsTrigger value="text">Texto</TabsTrigger>

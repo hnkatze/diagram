@@ -15,7 +15,7 @@ import { Input } from "@/components/ui/input";
 import { SAMPLES } from "@/lib/diagram/samples";
 import type { Diagram, DiagramKind } from "@/lib/diagram/types";
 
-export type ExportFormat = "svg" | "png1" | "png2" | "png3";
+export type ExportFormat = "svg" | "png1" | "png2" | "png3" | "json";
 
 export interface ToolbarProps {
   diagram: Diagram;
@@ -38,7 +38,7 @@ export function Toolbar(props: ToolbarProps) {
   const fileInput = useRef<HTMLInputElement>(null);
 
   return (
-    <header className="flex flex-wrap items-center gap-2 border-b border-slate-200 bg-white px-3 py-2">
+    <header className="flex flex-wrap items-center gap-2 border-b border-border bg-card px-3 py-2">
       <Input
         value={diagram.title}
         onChange={(event) => props.onTitle(event.target.value)}
@@ -47,7 +47,7 @@ export function Toolbar(props: ToolbarProps) {
         className="h-8 w-56 text-sm font-semibold"
       />
 
-      <div className="flex overflow-hidden rounded-md border border-slate-300">
+      <div className="flex overflow-hidden rounded-md border border-input">
         <Button
           size="xs"
           variant={diagram.kind === "er" ? "default" : "ghost"}
@@ -85,7 +85,7 @@ export function Toolbar(props: ToolbarProps) {
       </div>
 
       <div className="ml-auto flex items-center gap-1">
-        <span className="mr-1 text-[11px] text-slate-400">Ejemplos:</span>
+        <span className="mr-1 text-[11px] text-muted-foreground">Ejemplos:</span>
         {SAMPLES.map((sample) => (
           <Button key={sample.id} size="xs" variant="ghost" onClick={() => props.onLoadSample(sample.id)}>
             {sample.id.toUpperCase()}
@@ -106,6 +106,9 @@ export function Toolbar(props: ToolbarProps) {
         <Button size="xs" variant="outline" onClick={() => fileInput.current?.click()}>
           Importar
         </Button>
+        <Button size="xs" variant="outline" onClick={() => props.onExport("json")}>
+          Exportar JSON
+        </Button>
 
         <Dialog>
           <DialogTrigger render={<Button size="xs" disabled={props.busy}>Exportar imagen</Button>} />
@@ -114,7 +117,7 @@ export function Toolbar(props: ToolbarProps) {
               <DialogTitle>Exportar imagen</DialogTitle>
               <DialogDescription>
                 Se exporta el diagrama completo, no sólo lo que se ve en pantalla. SVG es vectorial; PNG se rasteriza a
-                1x, 2x o 3x.
+                1x, 2x o 3x. Para volver a abrirlo después usá Exportar JSON.
               </DialogDescription>
             </DialogHeader>
             <div className="grid grid-cols-2 gap-2">

@@ -19,31 +19,60 @@ import type { Diagram, DiagramEdge, DiagramKind, DiagramNode, Rect } from "./typ
  * cannot drift apart.
  */
 
+export type SvgTheme = "dark" | "light";
+
 export interface SvgOptions {
   /** Extra space around the whole drawing. */
   padding?: number;
-  /** Solid backdrop painted behind everything. */
+  /** Solid backdrop painted behind everything. Overrides the theme palette. */
   background?: string;
   /** Font stack used by every text element. */
   fontFamily?: string;
+  /** Colour palette. The app is dark-only, so the file matches the screen by default. */
+  theme?: SvgTheme;
 }
 
 const DEFAULT_PADDING = 48;
-const DEFAULT_BACKGROUND = "#ffffff";
-const FONT_SANS = "ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif";
-const FONT_MONO = "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
+const FONT_SANS = "'Plus Jakarta Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif";
+const FONT_MONO = "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
 
 const TITLE_HEIGHT = 40;
 const TITLE_FONT_SIZE = 20;
 
-const COLORS = {
-  stroke: "#94a3b8",
-  header: "#eef2ff",
-  text: "#0f172a",
-  muted: "#475569",
-  edge: "#64748b",
-  label: "#334155",
-} as const;
+interface Palette {
+  background: string;
+  stroke: string;
+  header: string;
+  text: string;
+  muted: string;
+  edge: string;
+  label: string;
+}
+
+/**
+ * The dark palette mirrors the shadcn tokens of `globals.css` as literal hex,
+ * because a downloaded SVG cannot read CSS variables of the page it came from.
+ */
+const PALETTES: Record<SvgTheme, Palette> = {
+  dark: {
+    background: "#0a0a0a", // --background
+    stroke: "#3f3f3f", // readable stand-in for --border on dark
+    header: "#262626", // --muted
+    text: "#fafafa", // --foreground
+    muted: "#a1a1a1", // --muted-foreground
+    edge: "#8f8f8f",
+    label: "#d4d4d4",
+  },
+  light: {
+    background: "#ffffff",
+    stroke: "#94a3b8",
+    header: "#eef2ff",
+    text: "#0f172a",
+    muted: "#475569",
+    edge: "#64748b",
+    label: "#334155",
+  },
+};
 
 function escapeXml(value: string): string {
   return value
@@ -74,7 +103,8 @@ function borderPoint(box: Rect, towardX: number, towardY: number): { x: number; 
 
 export function toSvg(diagram: Diagram, options: SvgOptions = {}): string {
   const padding = options.padding ?? DEFAULT_PADDING;
-  const background = options.background ?? DEFAULT_BACKGROUND;
+  const palette = PALETTES[options.theme ?? "dark"];
+  const background = options.background ?? palette.background;
   const fontFamily = options.fontFamily ?? FONT_SANS;
   const titleHeight = diagram.title.trim() === "" ? 0 : TITLE_HEIGHT;
 
@@ -100,7 +130,7 @@ export function toSvg(diagram: Diagram, options: SvgOptions = {}): string {
     `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" font-family="${escapeXml(fontFamily)}">`,
   );
   parts.push(
-    `<style>text{dominant-baseline:middle} .n{font-size:${NAME_FONT_SIZE}px;font-weight:600;fill:${COLORS.text}} .f{font-size:${ROW_FONT_SIZE}px;fill:${COLORS.muted}} .c{font-size:11px;fill:${COLORS.edge}} .l{font-size:12px;fill:${COLORS.label}} .t{font-size:${TITLE_FONT_SIZE}px;font-weight:700;fill:${COLORS.text}}</style>`,
+    `<style>text{dominant-baseline:middle} .n{font-size:${NAME_FONT_SIZE}px;font-weight:600;fill:${palette.text}} .f{font-size:${ROW_FONT_SIZE}px;fill:${palette.muted}} .c{font-size:11px;fill:${palette.edge}} .l{font-size:12px;fill:${palette.label}} .t{font-size:${TITLE_FONT_SIZE}px;font-weight:700;fill:${palette.text}}</style>`,
   );
   parts.push(`<rect x="0" y="0" width="${width}" height="${height}" fill="${escapeXml(background)}"/>`);
 
@@ -112,20 +142,20 @@ export function toSvg(diagram: Diagram, options: SvgOptions = {}): string {
 
   // Relations go under the entities so a box always covers its own edge ends.
   for (const edge of diagram.edges) {
-    parts.push(renderEdge(edge, boxes));
+    parts.push(renderEdge(edge, boxes, palette, background));
   }
 
   for (const node of diagram.nodes) {
     const entityBox = boxes.get(node.id);
     if (!entityBox) continue;
-    parts.push(renderNode(node, entityBox, diagram.kind));
+    parts.push(renderNode(node, entityBox, diagram.kind, palette));
   }
 
   parts.push("</svg>");
   return parts.join("");
 }
 
-function renderEdge(edge: DiagramEdge, boxes: Map<string, Rect>): string {
+function renderEdge(edge: DiagramEdge, boxes: Map<string, Rect>, palette: Palette, background: string): string {
   const source = boxes.get(edge.source);
   const target = boxes.get(edge.target);
   if (!source || !target) return "";
@@ -140,7 +170,7 @@ function renderEdge(edge: DiagramEdge, boxes: Map<string, Rect>): string {
     const endX = round(source.x + source.width / 2);
     const endY = round(source.y);
     parts.push(
-      `<path d="M ${startX} ${startY} C ${controlX} ${startY} ${controlX} ${round(endY - 40)} ${endX} ${endY}" fill="none" stroke="${COLORS.edge}" stroke-width="1.5"/>`,
+      `<path d="M ${startX} ${startY} C ${controlX} ${startY} ${controlX} ${round(endY - 40)} ${endX} ${endY}" fill="none" stroke="${palette.edge}" stroke-width="1.5"/>`,
     );
     if (edge.label !== "") {
       const text = escapeXml(edge.label);
@@ -148,7 +178,7 @@ function renderEdge(edge: DiagramEdge, boxes: Map<string, Rect>): string {
       const labelX = round(controlX + 6);
       const labelY = round(startY - 20);
       parts.push(
-        `<rect x="${labelX}" y="${round(labelY - 9)}" width="${labelWidth}" height="18" fill="#ffffff"/>`,
+        `<rect x="${labelX}" y="${round(labelY - 9)}" width="${labelWidth}" height="18" fill="${escapeXml(background)}"/>`,
       );
       parts.push(`<text class="l" x="${labelX + 4}" y="${labelY}">${text}</text>`);
     }
@@ -159,7 +189,7 @@ function renderEdge(edge: DiagramEdge, boxes: Map<string, Rect>): string {
   const to = borderPoint(target, source.x + source.width / 2, source.y + source.height / 2);
 
   parts.push(
-    `<line x1="${round(from.x)}" y1="${round(from.y)}" x2="${round(to.x)}" y2="${round(to.y)}" stroke="${COLORS.edge}" stroke-width="1.5"/>`,
+    `<line x1="${round(from.x)}" y1="${round(from.y)}" x2="${round(to.x)}" y2="${round(to.y)}" stroke="${palette.edge}" stroke-width="1.5"/>`,
   );
 
   const dx = to.x - from.x;
@@ -186,7 +216,7 @@ function renderEdge(edge: DiagramEdge, boxes: Map<string, Rect>): string {
     const midY = round((from.y + to.y) / 2 - 10);
     const labelWidth = Math.ceil(estimateTextWidth(edge.label, 12)) + 10;
     parts.push(
-      `<rect x="${round(midX - labelWidth / 2)}" y="${round(midY - 9)}" width="${labelWidth}" height="18" fill="#ffffff"/>`,
+      `<rect x="${round(midX - labelWidth / 2)}" y="${round(midY - 9)}" width="${labelWidth}" height="18" fill="${escapeXml(background)}"/>`,
     );
     parts.push(
       `<text class="l" x="${midX}" y="${midY}" text-anchor="middle">${escapeXml(edge.label)}</text>`,
@@ -196,14 +226,14 @@ function renderEdge(edge: DiagramEdge, boxes: Map<string, Rect>): string {
   return parts.join("");
 }
 
-function renderNode(node: DiagramNode, box: Rect, kind: DiagramKind): string {
+function renderNode(node: DiagramNode, box: Rect, kind: DiagramKind, palette: Palette): string {
   const clipId = `box-${node.id.replace(/[^A-Za-z0-9_-]/g, "-")}`;
   const parts: string[] = [];
 
   parts.push(`<clipPath id="${clipId}"><rect x="${box.x}" y="${box.y}" width="${box.width}" height="${box.height}" rx="8"/></clipPath>`);
   parts.push(`<g clip-path="url(#${clipId})">`);
   parts.push(
-    `<rect x="${box.x}" y="${box.y}" width="${box.width}" height="${NODE_HEADER_HEIGHT}" fill="${COLORS.header}"/>`,
+    `<rect x="${box.x}" y="${box.y}" width="${box.width}" height="${NODE_HEADER_HEIGHT}" fill="${palette.header}"/>`,
   );
   parts.push(
     `<text class="n" x="${round(box.x + NODE_PADDING_X)}" y="${round(box.y + NODE_HEADER_HEIGHT / 2)}">${escapeXml(node.name)}</text>`,
@@ -211,7 +241,7 @@ function renderNode(node: DiagramNode, box: Rect, kind: DiagramKind): string {
 
   const separatorY = round(box.y + NODE_HEADER_HEIGHT);
   parts.push(
-    `<line x1="${box.x}" y1="${separatorY}" x2="${round(box.x + box.width)}" y2="${separatorY}" stroke="${COLORS.stroke}" stroke-width="1"/>`,
+    `<line x1="${box.x}" y1="${separatorY}" x2="${round(box.x + box.width)}" y2="${separatorY}" stroke="${palette.stroke}" stroke-width="1"/>`,
   );
 
   if (node.fields.length === 0) {
@@ -233,7 +263,7 @@ function renderNode(node: DiagramNode, box: Rect, kind: DiagramKind): string {
 
   parts.push("</g>");
   parts.push(
-    `<rect x="${box.x}" y="${box.y}" width="${box.width}" height="${box.height}" rx="8" fill="none" stroke="${COLORS.stroke}" stroke-width="1.5"/>`,
+    `<rect x="${box.x}" y="${box.y}" width="${box.width}" height="${box.height}" rx="8" fill="none" stroke="${palette.stroke}" stroke-width="1.5"/>`,
   );
 
   return parts.join("");
