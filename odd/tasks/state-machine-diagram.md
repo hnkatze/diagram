@@ -58,7 +58,7 @@ Pagado --> final
 | T5 | Canvas state shapes + toolbar kind switch | S8 | worker | yes |
 | T6 | Sample, README, JSON round trip for `kind: "state"`, final verification | S9, S10 | worker | yes |
 | T7 | Copy-JSON buttons per kind, without touching the open document | S11 | inline | yes |
-| T8 | Fix the ER self-relation loop being clipped by `bounds` (found during T4) | S9 | inline | pending |
+| T8 | Fix the ER self-relation loop being clipped by `bounds` (found during T4) | S9 | inline | `900274a` |
 
 ## Log
 
@@ -77,3 +77,5 @@ L6 (user, verbatim): "deja botones para copiar json por tipo pls"
 L7 (decision, user): the copy buttons carry the bundled sample of each kind rather than the open document, so the three kinds can be grabbed without switching away from the diagram being edited (S11). The existing `Exportar JSON` button keeps downloading the open document.
 
 L8 (finding, T4): the exporters' self-relation loop extends past the rectangle returned by `bounds`, so an ER diagram whose entity has a self relation is clipped at the right edge of the exported image. The state renderer avoids it with a tighter loop, which fixes the symptom for states only. The ER loop is tracked as T8.
+
+L9 (evidence, close audit 2026-11-11): the feature closes with T1–T8 all implemented. T8 → `900274a`: the ER self-relation loop now starts at the source's right edge, both cubic control points share one x at `+LOOP_REACH (40)` (`svg.ts:73,241,244`), and `bounds` pads by `DEFAULT_PADDING (48)`, so the loop's rightmost x lands 8px inside the document; the label is centred on the chord, not pushed past the control point. The same audit re-read S1–S11 against HEAD and found every spec present: `Diagram` union with `ErDiagram | StateDiagram`; state glyphs; `initial`/`final` repeats; transition labels stored verbatim; DSL round trip; `measureState` shared by canvas and exporter; arrowheads in `toSvg`; kind-switch sample reset; autosave, JSON envelope and undo/redo shared; README documents the state DSL; per-kind copy-JSON buttons. Checks at close: `npm test` 129/129 pass (`node --test`), `npm run build` exit 0 on Next 16.4.6. One caveat leaves the feature as a follow-up in the hybrid document: the loop bound depends on `padding >= 40` and an explicit smaller `padding` re-exposes the clip (hybrid T16).

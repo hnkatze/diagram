@@ -62,12 +62,14 @@ Rules: `diagram <kind> "<title>"` opens the file and is optional (defaults to `e
 | T6 | Text panel + sync + error surface | S1, S6, S7 | inline | `3265067` |
 | T7 | Export UI (PNG 1x/2x/3x, SVG), persistence, undo/redo, JSON import | S9, S10 | inline | `ff3c1f0` + `3265067` |
 | T8 | Samples, first-run state, README, build + server verification | S11 | worker | `29320bb` |
-| T9 | Dark everywhere (S12) plus the JSON export the toolbar is still missing (S10 gap found by T8) | S10, S12 | worker | pending |
-| T10 | Browser verification of the dark shell, typefaces and layout | S12 | inline | pending |
-| T11 | Edge endpoints on the box border from shared geometry, so relation cardinalities are never hidden by an entity | S4, S9, S12 | worker | pending |
-| T12 | Export background switch (dark or light) for SVG and PNG | S9 | inline | pending |
-| T14 | Accept the standard `*` cardinality shorthand at input boundaries and name the failing relation in the error | S5, S10 | inline | pending |
-| T13 | Diagnose the "missing relation edges" report after T11: not a code regression — the dev server refuses `/_next/hmr` on `127.0.0.1`, the client never hydrates, and only the SSR markup is measured | S4 | worker | no code change |
+| T9 | Dark everywhere (S12) plus the JSON export the toolbar is still missing (S10 gap found by T8) | S10, S12 | worker | `3cddebf` |
+| T10 | Browser verification of the dark shell, typefaces and layout | S12 | inline | no code change (L14, L17) |
+| T11 | Edge endpoints on the box border from shared geometry, so relation cardinalities are never hidden by an entity | S4, S9, S12 | worker | `cdc9a97` |
+| T12 | Export background switch (dark or light) for SVG and PNG | S9 | inline | `5e2aebd` |
+| T14 | Accept the standard `*` cardinality shorthand at input boundaries and name the failing relation in the error | S5, S10 | inline | `a5e5764` |
+| T13 | Diagnose the "missing relation edges" report after T11: not a code regression — the dev server refuses `/_next/hmr` on `127.0.0.1`, the client never hydrates, and only the SSR markup is measured | S4 | worker | no code change (`0e44068`) |
+| T15 | Name the relation in the DSL cardinality error, matching the JSON import message (gap found by the 2026-11-11 audit) | S5, S10 | inline | pending |
+| T16 | Clamp the ER self-relation loop reach to the frame padding, so an explicit small `padding` cannot clip it (gap found by the 2026-11-11 audit) | S9 | inline | pending |
 
 ## Log
 
@@ -102,3 +104,7 @@ L14 (evidence, T13): the report that `cdc9a97` made the relation edges vanish do
 L15 (decision, user): the user chose not to touch `next.config.ts`. Development happens on `http://localhost:3000`; the constraint is documented in the README together with the fact that `npm start` is unaffected. Verdict on T13: no code change, and the earlier "edges do not render" claim was a measurement error on an unhydrated page, not a defect.
 
 L16 (user report + fix, T14): `modelo-clases-mercadito.json` was refused with a bare "The diagram contains an invalid relation". The file is well formed (envelope, 16 entities, 14 relations); four of its relations spell the target cardinality as `*`, the standard UML shorthand for "many". `readEdge` only accepted the four canonical values, so one shorthand rejected the whole document, and the message named neither the relation nor the value. Fix: `normalizeCardinality` on both input boundaries (JSON import and DSL parse) maps `*` to `0..*` while the model stays canonical, and the reader error now names the relation and the offending value. Verified against the real file: it imports as 16 entities and 14 relations.
+
+L17 (evidence, close audit 2026-11-11): the task table had drifted — every row still marked `pending` was already implemented at HEAD. A code audit mapped each one: T9 → `3cddebf` (`dark` on the root at `layout.tsx:26`, `color-scheme: dark` at `globals.css:87`, zero hardcoded `slate`/`gray`/`zinc`/`neutral`/`stone` steps across `src/`, all nine semantic tokens in use in `src/components/diagram/`, JSON export wired `toolbar.tsx:112` → `editor.tsx:405` → `persistence.ts:33` on the same `{ version: 1, diagram }` envelope as the import); T11 → `cdc9a97` (`borderPoint` at `measure.ts:91` consumed by the canvas at `shapes.tsx:137,354` and by the exporter at `svg.ts:397,425`); T12 → `5e2aebd` (`SvgOptions.theme` at `svg.ts:47`, applied at `svg.ts:142`); T14 → `a5e5764` (`normalizeCardinality` at `types.ts:139` on both input boundaries); T13 → `0e44068`, docs only, per L14/L15. T10's browser evidence is L14's `next start` run on `127.0.0.1:3100` (3 edges, 9 relation labels, autosave present, 0 console errors). Checks run at close: `npm test` 129/129 pass, `npm run build` exit 0.
+
+L18 (findings, same audit — reopened as T15 and T16): two narrow gaps survive the close. (1) The JSON importer names the relation and the offending cardinality (`persistence.ts:69`), but the DSL parser reports only the value and the line (`dsl.ts:257`), so T14's "name the failing relation" holds on one boundary only. (2) The self-relation loop stays inside `bounds` only while `padding >= 40` — one shared control x at `+LOOP_REACH` (`svg.ts:73,244`) against `DEFAULT_PADDING = 48` — while `createFrame` honours a caller-supplied `padding` (`svg.ts:141`) and `svg.test.ts:176` already passes `padding: 10`, which re-exposes the clip that T8 fixed in the state feature.
