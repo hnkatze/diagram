@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef } from "react";
+import { useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -17,6 +17,9 @@ import type { Diagram, DiagramKind } from "@/lib/diagram/types";
 
 export type ExportFormat = "svg" | "png1" | "png2" | "png3" | "json";
 
+/** Background of the exported file, independent of the always-dark app shell. */
+export type ExportTheme = "dark" | "light";
+
 export interface ToolbarProps {
   diagram: Diagram;
   canUndo: boolean;
@@ -30,12 +33,13 @@ export interface ToolbarProps {
   onLayout: () => void;
   onLoadSample: (id: string) => void;
   onImportFile: (file: File) => void;
-  onExport: (format: ExportFormat) => void;
+  onExport: (format: ExportFormat, theme: ExportTheme) => void;
 }
 
 export function Toolbar(props: ToolbarProps) {
   const { diagram } = props;
   const fileInput = useRef<HTMLInputElement>(null);
+  const [exportTheme, setExportTheme] = useState<ExportTheme>("dark");
 
   return (
     <header className="flex flex-wrap items-center gap-2 border-b border-border bg-card px-3 py-2">
@@ -106,7 +110,7 @@ export function Toolbar(props: ToolbarProps) {
         <Button size="xs" variant="outline" onClick={() => fileInput.current?.click()}>
           Importar
         </Button>
-        <Button size="xs" variant="outline" onClick={() => props.onExport("json")}>
+        <Button size="xs" variant="outline" onClick={() => props.onExport("json", exportTheme)}>
           Exportar JSON
         </Button>
 
@@ -120,17 +124,40 @@ export function Toolbar(props: ToolbarProps) {
                 1x, 2x o 3x. Para volver a abrirlo después usá Exportar JSON.
               </DialogDescription>
             </DialogHeader>
+            <div className="flex flex-col gap-1">
+              <span className="text-[11px] font-medium text-muted-foreground">Fondo del archivo</span>
+              <div className="flex w-fit overflow-hidden rounded-md border border-border">
+                <Button
+                  size="xs"
+                  className="rounded-none"
+                  variant={exportTheme === "dark" ? "default" : "ghost"}
+                  aria-pressed={exportTheme === "dark"}
+                  onClick={() => setExportTheme("dark")}
+                >
+                  Oscuro
+                </Button>
+                <Button
+                  size="xs"
+                  className="rounded-none"
+                  variant={exportTheme === "light" ? "default" : "ghost"}
+                  aria-pressed={exportTheme === "light"}
+                  onClick={() => setExportTheme("light")}
+                >
+                  Claro
+                </Button>
+              </div>
+            </div>
             <div className="grid grid-cols-2 gap-2">
-              <Button variant="outline" onClick={() => props.onExport("svg")}>
+              <Button variant="outline" onClick={() => props.onExport("svg", exportTheme)}>
                 SVG (vectorial)
               </Button>
-              <Button variant="outline" onClick={() => props.onExport("png1")}>
+              <Button variant="outline" onClick={() => props.onExport("png1", exportTheme)}>
                 PNG 1x
               </Button>
-              <Button variant="outline" onClick={() => props.onExport("png2")}>
+              <Button variant="outline" onClick={() => props.onExport("png2", exportTheme)}>
                 PNG 2x
               </Button>
-              <Button variant="outline" onClick={() => props.onExport("png3")}>
+              <Button variant="outline" onClick={() => props.onExport("png3", exportTheme)}>
                 PNG 3x
               </Button>
             </div>

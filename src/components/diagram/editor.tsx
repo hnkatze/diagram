@@ -31,7 +31,7 @@ import type { Diagram, DiagramField } from "@/lib/diagram/types";
 import { DiagramCanvas } from "./canvas";
 import { Inspector } from "./inspector";
 import { TextPanel } from "./text-panel";
-import { Toolbar, type ExportFormat } from "./toolbar";
+import { Toolbar, type ExportFormat, type ExportTheme } from "./toolbar";
 
 /**
  * The editing surface (spec S1). One `History` of `Diagram` snapshots is the
@@ -209,23 +209,23 @@ export function DiagramEditor() {
   );
 
   const handleExport = useCallback(
-    async (format: ExportFormat) => {
+    async (format: ExportFormat, theme: ExportTheme) => {
       if (format === "json") {
         downloadJson(diagram);
         setMessage("JSON descargado.");
         return;
       }
-      const svg = toSvg(diagram);
+      const svg = toSvg(diagram, { theme });
       if (format === "svg") {
         downloadSvg(svg, fileNameFor(diagram, "svg"));
-        setMessage("SVG descargado.");
+        setMessage(`SVG descargado (fondo ${theme === "dark" ? "oscuro" : "claro"}).`);
         return;
       }
       const scale = format === "png1" ? 1 : format === "png2" ? 2 : 3;
       setBusy(true);
       try {
         await downloadPng(svg, fileNameFor(diagram, "png"), scale);
-        setMessage(`PNG ${scale}x descargado.`);
+        setMessage(`PNG ${scale}x descargado (fondo ${theme === "dark" ? "oscuro" : "claro"}).`);
       } catch (error) {
         setMessage(error instanceof Error ? error.message : "No se pudo exportar el PNG.");
       } finally {

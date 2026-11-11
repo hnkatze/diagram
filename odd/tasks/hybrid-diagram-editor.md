@@ -65,6 +65,7 @@ Rules: `diagram <kind> "<title>"` opens the file and is optional (defaults to `e
 | T9 | Dark everywhere (S12) plus the JSON export the toolbar is still missing (S10 gap found by T8) | S10, S12 | worker | pending |
 | T10 | Browser verification of the dark shell, typefaces and layout | S12 | inline | pending |
 | T11 | Edge endpoints on the box border from shared geometry, so relation cardinalities are never hidden by an entity | S4, S9, S12 | worker | pending |
+| T12 | Export background switch (dark or light) for SVG and PNG | S9 | inline | pending |
 
 ## Log
 
@@ -89,3 +90,7 @@ L9 (decision, parent): L8 resolves to one permanent dark theme rather than a the
 L10 (evidence, T8): `npm run build` exit 0 on Next 16.4.6 + Turbopack with `.ts`-extension relative imports, CSS imported from a client component and the shadcn CSS imports; `npm test` 82/82; dev server answered 200 with the editor shell. T8 also found that spec S10 requires JSON **export** from the toolbar and only JSON **import** was wired — reopened as part of T9.
 
 L11 (defect, parent, found in the browser): relation endpoints were anchored to fixed `Right`/`Left` handles, so an edge leaving a box's right handle towards a target on the left runs back across its own box and the source cardinality renders underneath the entity. Verified in the DOM: the `1` element measured at x 407..411 while the entity box ended at x 412. The exported SVG never had this bug because it clips the line to the rectangle. Decision: move the border-intersection maths into the shared geometry module and use it on the canvas too, so both surfaces resolve endpoints the same way instead of teaching the canvas a second rule.
+
+L12 (user, verbatim): "que podamos exportar los modelos en white o dark que tengamos esa opcion pls"
+
+L13 (decision, parent): the export background becomes an explicit choice in the export dialog (`Oscuro` default, `Claro` for documents and print), applied to SVG and PNG alike. The app shell stays dark — the switch describes the delivered file, not the editor.

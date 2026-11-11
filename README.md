@@ -75,13 +75,18 @@ the panel shows the error with its line number.
 
 - `SVG` — vector output from the pure `toSvg(diagram, options)` serializer.
 - `PNG 1x / 2x / 3x` — that same SVG rasterized in the browser at the chosen scale.
+- `JSON` — re-openable copy of the model, written by `toFile()`.
+
+The export dialog has a **Fondo del archivo** switch (`Oscuro` / `Claro`) that applies to every
+format. The app shell is always dark, so this only decides what the delivered file looks like:
+`Oscuro` matches the screen, `Claro` is what you want for a document or a print.
 
 The file name is the slug of the diagram title (`untitled` when empty). The image has a solid
 background, the title, every entity with its fields, and every relation with label and cardinalities.
 
-The image follows the app theme: `toSvg` paints the dark palette by default, so the exported file
-matches the screen. `toSvg(diagram, { theme: "light" })` keeps a light version available for print,
-and an explicit `background` option still overrides either palette.
+`toSvg` paints the dark palette by default, so the exported file matches the screen;
+`toSvg(diagram, { theme: "light" })` is the light version, and an explicit `background` option still
+overrides either palette.
 
 ### JSON (round trip)
 
