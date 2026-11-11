@@ -236,18 +236,22 @@ function renderEdge(edge: RelationEdge, boxes: Map<string, Rect>, frame: Frame):
 
   if (edge.source === edge.target) {
     // Self relation: a loop leaving the right edge and rejoining the top edge.
+    // It reuses the same reach/rise as the state loop so the whole drawing stays
+    // inside the extent `bounds` reserves (the default padding is 48).
     const startX = round(source.x + source.width);
     const startY = round(source.y + NODE_HEADER_HEIGHT / 2);
-    const controlX = round(source.x + source.width + 56);
+    const controlX = round(startX + LOOP_REACH);
     const endX = round(source.x + source.width / 2);
     const endY = round(source.y);
     parts.push(
-      `<path d="M ${startX} ${startY} C ${controlX} ${startY} ${controlX} ${round(endY - 40)} ${endX} ${endY}" fill="none" stroke="${palette.edge}" stroke-width="1.5"/>`,
+      `<path d="M ${startX} ${startY} C ${controlX} ${startY} ${controlX} ${round(endY - LOOP_RISE)} ${endX} ${endY}" fill="none" stroke="${palette.edge}" stroke-width="1.5"/>`,
     );
     if (edge.label !== "") {
-      const labelX = round(controlX + 6);
-      const labelY = round(startY - 20);
-      parts.push(renderLabel(edge.label, { x: labelX, y: labelY, anchor: "start", padX: 8 }, frame));
+      // Centred over the loop instead of trailing past its control point, which
+      // used to push the label outside the exported image.
+      const labelX = round((startX + endX) / 2);
+      const labelY = round(Math.min(startY, endY) - LOOP_RISE - 10);
+      parts.push(renderLabel(edge.label, { x: labelX, y: labelY, anchor: "middle", padX: 8 }, frame));
     }
     return parts.join("");
   }

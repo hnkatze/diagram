@@ -227,6 +227,37 @@ test("the image is dark by default, light on demand, and an explicit background 
   assert.equal(sizeOf(print), sizeOf(byDefault));
 });
 
+test("a self relation stays inside the exported document", () => {
+  const looped = diagram({
+    nodes: [node()],
+    edges: [edge({ id: "usuario->usuario", source: "usuario", target: "usuario", label: "delega" })],
+  });
+  const svg = toSvg(looped);
+  const width = Number(/width="(\d+)"/.exec(svg)?.[1]);
+  const height = Number(/height="(\d+)"/.exec(svg)?.[1]);
+  const path = /<path d="M ([\d.-]+) ([\d.-]+) C ([\d.-]+) ([\d.-]+) ([\d.-]+) ([\d.-]+) ([\d.-]+) ([\d.-]+)"/.exec(
+    svg,
+  );
+  assert.ok(path, "the loop must be a cubic path");
+  if (!path) return;
+
+  const [p0x, p0y, c1x, c1y, c2x, c2y, p3x, p3y] = path.slice(1).map(Number);
+  let maxX = -Infinity;
+  let minY = Infinity;
+  for (let step = 0; step <= 20; step += 1) {
+    const t = step / 20;
+    const u = 1 - t;
+    const x = u * u * u * p0x + 3 * u * u * t * c1x + 3 * u * t * t * c2x + t * t * t * p3x;
+    const y = u * u * u * p0y + 3 * u * u * t * c1y + 3 * u * t * t * c2y + t * t * t * p3y;
+    maxX = Math.max(maxX, x);
+    minY = Math.min(minY, y);
+  }
+
+  assert.ok(maxX <= width, `the loop reaches ${maxX} but the document is ${width} wide`);
+  assert.ok(minY >= 0, `the loop reaches y ${minY}, above the document`);
+  assert.ok(minY <= height);
+});
+
 test("uml-class diagrams keep the visibility glyph", () => {
   const uml = diagram({ kind: "uml-class", title: "Modelo" });
   assert.ok(toSvg(uml).includes(formatFieldLabel(node().fields[0], "uml-class")));
