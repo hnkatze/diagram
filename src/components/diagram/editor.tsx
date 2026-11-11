@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { parse, serialize } from "@/lib/diagram/dsl";
-import { downloadJson, downloadPng, downloadSvg, fileNameFor } from "@/lib/diagram/export-image";
+import { copyToClipboard, downloadJson, downloadPng, downloadSvg, fileNameFor, jsonExport } from "@/lib/diagram/export-image";
 import { canRedo, canUndo, commit, createHistory, redo, undo, type History } from "@/lib/diagram/history";
 import { layout, layoutNewNodes } from "@/lib/diagram/layout";
 import { bounds, measureState } from "@/lib/diagram/measure";
@@ -27,7 +27,7 @@ import {
   updateField,
 } from "@/lib/diagram/model";
 import { fromFile, readStorage, writeStorage } from "@/lib/diagram/persistence";
-import { defaultDiagram, sampleById } from "@/lib/diagram/samples";
+import { SAMPLES, defaultDiagram, sampleById } from "@/lib/diagram/samples";
 import { toSvg } from "@/lib/diagram/svg";
 import type { Diagram, DiagramField, DiagramKind, ErDiagram, Result, StateDiagram } from "@/lib/diagram/types";
 import { err, isClassDiagramKind, isErDiagram, isStateDiagram, ok } from "@/lib/diagram/types";
@@ -427,6 +427,17 @@ export function DiagramEditor() {
     [present],
   );
 
+  const handleCopyJson = useCallback(async (sampleId: string) => {
+    const label = SAMPLES.find((sample) => sample.id === sampleId)?.label ?? sampleId;
+    const { text } = jsonExport(sampleById(sampleId));
+    const copied = await copyToClipboard(text);
+    setMessage(
+      copied
+        ? `JSON del ejemplo "${label}" copiado al portapapeles.`
+        : "El navegador no permitió copiar al portapapeles.",
+    );
+  }, []);
+
   const handleImportFile = useCallback(
     async (file: File) => {
       const result = fromFile(await file.text());
@@ -459,6 +470,7 @@ export function DiagramEditor() {
         }}
         onImportFile={handleImportFile}
         onExport={handleExport}
+        onCopyJson={handleCopyJson}
       />
 
       {message === null ? null : (

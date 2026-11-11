@@ -2,7 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { parse } from "./dsl.ts";
+import { jsonExport } from "./export-image.ts";
 import { measureNode, measureState } from "./measure.ts";
+import { fromFile } from "./persistence.ts";
 import { SAMPLES, defaultDiagram, sampleById } from "./samples.ts";
 import type { ErDiagram, StateDiagram } from "./types.ts";
 
@@ -62,6 +64,18 @@ test("the UML sample keeps protected visibility", () => {
 
 test("an unknown sample id falls back to the ER sample", () => {
   assert.equal(sampleById("nope").title, "Tienda");
+});
+
+test("every sample copies as JSON that imports back with its own kind", () => {
+  assert.ok(SAMPLES.length >= 3, "one example per kind");
+  for (const sample of SAMPLES) {
+    const { text } = jsonExport(sampleById(sample.id));
+    const restored = fromFile(text);
+    assert.equal(restored.ok, true, `${sample.id} must import: ${restored.ok ? "" : restored.error}`);
+    if (!restored.ok) continue;
+    assert.equal(restored.value.kind, sample.kind);
+    assert.ok(restored.value.nodes.length > 0, `${sample.id} must carry content`);
+  }
 });
 
 /** Same check as `overlaps`, measured with the state geometry. */

@@ -34,6 +34,7 @@ export interface ToolbarProps {
   onLoadSample: (id: string) => void;
   onImportFile: (file: File) => void;
   onExport: (format: ExportFormat, theme: ExportTheme) => void;
+  onCopyJson: (sampleId: string) => void;
 }
 
 export function Toolbar(props: ToolbarProps) {
@@ -113,6 +114,32 @@ export function Toolbar(props: ToolbarProps) {
         <Button size="xs" variant="outline" onClick={() => props.onExport("json", exportTheme)}>
           Exportar JSON
         </Button>
+
+        <Dialog>
+          <DialogTrigger render={<Button size="xs" variant="outline">Copiar JSON</Button>} />
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Copiar el JSON de un ejemplo</DialogTitle>
+              <DialogDescription>
+                Copia al portapapeles el ejemplo de ese tipo, sin cambiar el diagrama que estás editando. Para llevarte
+                el documento actual usá Exportar JSON.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-2">
+              {SAMPLES.map((sample) => (
+                <Button
+                  key={sample.id}
+                  variant="outline"
+                  className="justify-between"
+                  onClick={() => props.onCopyJson(sample.id)}
+                >
+                  <span>{sample.label}</span>
+                  <span className="font-mono text-[11px] text-muted-foreground">{sample.kind}</span>
+                </Button>
+              ))}
+            </div>
+          </DialogContent>
+        </Dialog>
 
         <Dialog>
           <DialogTrigger render={<Button size="xs" disabled={props.busy}>Exportar imagen</Button>} />
