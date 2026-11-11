@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { parse, serialize } from "@/lib/diagram/dsl";
 import { copyToClipboard, downloadJson, downloadPng, downloadSvg, fileNameFor, jsonExport } from "@/lib/diagram/export-image";
@@ -26,11 +28,12 @@ import {
   updateEdge,
   updateField,
 } from "@/lib/diagram/model";
+import type { NestedDiagram } from "@/lib/diagram/model";
 import { fromFile, readStorage, writeStorage } from "@/lib/diagram/persistence";
-import { SAMPLES, defaultDiagram, sampleById } from "@/lib/diagram/samples";
+import { SAMPLES, SAMPLE_BY_KIND, defaultDiagram, sampleById } from "@/lib/diagram/samples";
 import { toSvg } from "@/lib/diagram/svg";
-import type { Diagram, DiagramField, DiagramKind, ErDiagram, Result, StateDiagram } from "@/lib/diagram/types";
-import { err, isClassDiagramKind, isErDiagram, isStateDiagram, ok } from "@/lib/diagram/types";
+import type { Diagram, DiagramField, DiagramKind, ErDiagram, GlyphDiagram, Result, StateDiagram } from "@/lib/diagram/types";
+import { err, isClassDiagramKind, isErDiagram, isGlyphDiagram, isStateDiagram, ok } from "@/lib/diagram/types";
 import { DiagramCanvas } from "./canvas";
 import { Inspector, StateInspector } from "./inspector";
 import { TextPanel } from "./text-panel";
@@ -53,10 +56,52 @@ interface Draft {
 const NEW_ENTITY_NAME = "Entidad";
 const NEW_STATE_NAME = "Estado";
 
-/** The bundled sample each kind starts from when the kind control switches. */
-const SAMPLE_BY_KIND: Record<DiagramKind, string> = { er: "er", "uml-class": "uml", state: "estado" };
+interface GlyphInspectorProps {
+  diagram: GlyphDiagram;
+  selectedId: string | null;
+  onRename: (id: string, name: string) => void;
+  onDeleteNode: (id: string) => void;
+  onDeleteEdge: (id: string) => void;
+}
 
-function nextEntityName(diagram: ErDiagram, base: string = NEW_ENTITY_NAME): string {
+/** The glyph family has no fields or cardinalities: a node is its name and role, a relation its kind and label. */
+function GlyphInspector({ diagram, selectedId, onRename, onDeleteNode, onDeleteEdge }: GlyphInspectorProps) {
+  const node = diagram.nodes.find((candidate) => candidate.id === selectedId);
+  const edge = diagram.edges.find((candidate) => candidate.id === selectedId);
+  if (!node && !edge) {
+    return <p className="p-4 text-sm text-muted-foreground">Selecciona un elemento o una relación.</p>;
+  }
+  return (
+    <div className="flex flex-col gap-3 p-4">
+      {node ? (
+        <>
+          <span className="text-xs uppercase tracking-wide text-muted-foreground">{node.role}</span>
+          <Input
+            key={node.id}
+            defaultValue={node.name}
+            aria-label="Nombre"
+            onBlur={(event) => onRename(node.id, event.target.value)}
+          />
+          <Button size="xs" variant="outline" onClick={() => onDeleteNode(node.id)}>
+            Eliminar
+          </Button>
+        </>
+      ) : edge ? (
+        <>
+          <span className="text-sm text-card-foreground">
+            {edge.source} {edge.relation} {edge.target}
+            {edge.label === "" ? "" : ` · ${edge.label}`}
+          </span>
+          <Button size="xs" variant="outline" onClick={() => onDeleteEdge(edge.id)}>
+            Eliminar relación
+          </Button>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+function nextEntityName(diagram: NestedDiagram, base: string = NEW_ENTITY_NAME): string {
   const taken = new Set(diagram.nodes.map((node) => slugify(node.name)));
   if (!taken.has(slugify(base))) return base;
   let suffix = 2;
@@ -386,15 +431,15 @@ export function DiagramEditor() {
   const handleKind = useCallback(
     (kind: DiagramKind) => {
       if (kind === present.kind) return;
-      // Spec S8: `er` <-> `uml` keeps converting the document; the state family
-      // shares no element with the others, so entering or leaving it starts that
-      // family's bundled sample instead of half-converting anything.
-      if (kind === "state" || present.kind === "state") {
+      // Spec S8: `er` <-> `uml` keeps converting the document; the other families
+      // share no element with it, so entering or leaving one starts that kind's
+      // bundled sample instead of half-converting anything.
+      if (!isClassDiagramKind(kind) || !isClassDiagramKind(present.kind)) {
         apply(sampleById(SAMPLE_BY_KIND[kind]));
         setSelectedId(null);
         return;
       }
-      if (!isClassDiagramKind(kind) || !isErDiagram(present)) return;
+      if (!isErDiagram(present)) return;
       apply(setKind(present, kind));
     },
     [apply, present],
@@ -512,6 +557,17 @@ export function DiagramEditor() {
                   onUpdateTransition={(edgeId, label) => apply(updateTransition(present, edgeId, label))}
                   onDeleteTransition={(edgeId) => {
                     apply(deleteTransition(present, edgeId));
+                    setSelectedId(null);
+                  }}
+                />
+              ) : isGlyphDiagram(present) ? (
+                <GlyphInspector
+                  diagram={present}
+                  selectedId={selectedId}
+                  onRename={handleRename}
+                  onDeleteNode={handleDelete}
+                  onDeleteEdge={(edgeId) => {
+                    apply(deleteEdge(present, edgeId));
                     setSelectedId(null);
                   }}
                 />

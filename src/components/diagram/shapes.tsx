@@ -32,10 +32,12 @@ import {
   measureState,
 } from "@/lib/diagram/measure";
 import type {
-  DiagramEdge,
   DiagramKind,
   DiagramNode,
+  GlyphEdge,
+  GlyphNode,
   Point,
+  RelationEdge as RelationEdgeModel,
   Rect,
   StateNode,
   Transition,
@@ -102,7 +104,7 @@ function EntityNodeView({ data }: NodeProps<EntityNodeType>) {
 export const EntityNode = memo(EntityNodeView);
 
 export interface ContainerNodeData extends Record<string, unknown> {
-  node: DiagramNode;
+  node: DiagramNode | GlyphNode;
 }
 
 export type ContainerNodeType = Node<ContainerNodeData, "container">;
@@ -134,7 +136,7 @@ function ContainerShapeView({ id, data }: NodeProps<ContainerNodeType>) {
 export const ContainerShape = memo(ContainerShapeView);
 
 export interface RelationEdgeData extends Record<string, unknown> {
-  edge: DiagramEdge;
+  edge: RelationEdgeModel | GlyphEdge;
 }
 
 export type RelationEdgeType = Edge<RelationEdgeData, "relation">;
@@ -208,8 +210,8 @@ function RelationEdgeView({ source, target, sourceX, sourceY, targetX, targetY, 
     ? { x: from.x + SELF_LOOP_X * 0.5, y: from.y - SELF_LOOP_Y + 12 }
     : cards.target;
 
-  const sourceText = cardinalityLabel(edge.sourceCardinality);
-  const targetText = cardinalityLabel(edge.targetCardinality);
+  const sourceText = "sourceCardinality" in edge ? cardinalityLabel(edge.sourceCardinality) : "";
+  const targetText = "targetCardinality" in edge ? cardinalityLabel(edge.targetCardinality) : "";
 
   return (
     <>
@@ -261,6 +263,52 @@ function RelationEdgeView({ source, target, sourceX, sourceY, targetX, targetY, 
 }
 
 export const RelationEdge = memo(RelationEdgeView);
+
+/* ------------------------------------------------------------------ glyphs */
+
+/** Head radius and stroke shared with the exporter's stick figure (see `svg.ts`). */
+const ACTOR_HEAD = 9;
+
+export interface GlyphNodeData extends Record<string, unknown> {
+  node: GlyphNode;
+}
+
+export type GlyphNodeType = Node<GlyphNodeData, "glyph">;
+
+const GLYPH_HANDLE_CLASS =
+  "!h-2.5 !w-2.5 !border-0 !bg-muted-foreground opacity-0 transition-opacity group-hover:opacity-100";
+
+/** An actor is a stick figure over its name; every other role is an oval or a labelled box. */
+function GlyphNodeView({ data, selected }: NodeProps<GlyphNodeType>) {
+  const { node } = data;
+  const stroke = selected ? "stroke-foreground" : "stroke-muted-foreground";
+
+  return (
+    <div className="group relative h-full w-full" data-role={node.role} data-name={node.name}>
+      <Handle type="target" position={Position.Left} className={GLYPH_HANDLE_CLASS} />
+      <Handle type="source" position={Position.Right} className={GLYPH_HANDLE_CLASS} />
+      {node.role === "actor" ? (
+        <div className="glyph-actor flex h-full w-full flex-col items-center">
+          <svg width={40} height={46} viewBox="0 0 40 46" fill="none" strokeWidth={1.5} strokeLinecap="round" className={stroke}>
+            <circle cx={20} cy={ACTOR_HEAD} r={ACTOR_HEAD} />
+            <path d="M 20 18 L 20 28 M 6 19 L 34 19 M 20 28 L 8 42 M 20 28 L 32 42" />
+          </svg>
+          <span className="truncate text-xs font-semibold text-card-foreground">{node.name}</span>
+        </div>
+      ) : (
+        <div
+          className={`glyph-${node.role === "usecase" ? "usecase" : "box"} flex h-full w-full items-center justify-center border-[1.5px] bg-muted ${
+            node.role === "usecase" ? "rounded-[50%]" : "rounded-lg"
+          } ${selected ? "border-foreground" : "border-border"}`}
+        >
+          <span className="truncate px-4 text-sm font-semibold text-card-foreground">{node.name}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export const GlyphShape = memo(GlyphNodeView);
 
 /* ------------------------------------------------------------------ states */
 

@@ -5,6 +5,10 @@ import type {
   DiagramField,
   ErDiagram,
   ErNode,
+  GlyphDiagram,
+  GlyphDiagramKind,
+  GlyphEdge,
+  GlyphNode,
   RelationEdge,
   Result,
   StateDiagram,
@@ -12,7 +16,22 @@ import type {
   StateRole,
   Transition,
 } from "./types.ts";
-import { NODE_ROLES, RELATION_KINDS, err, isDiagramKind, isNodeRole, isRelationKind, isVisibility, normalizeCardinality, ok } from "./types.ts";
+import {
+  GLYPH_RELATIONS,
+  GLYPH_ROLES,
+  NODE_ROLES,
+  RELATION_KINDS,
+  err,
+  isContainerRole,
+  isDiagramKind,
+  isGlyphDiagramKind,
+  isGlyphRole,
+  isNodeRole,
+  isRelationKind,
+  isVisibility,
+  normalizeCardinality,
+  ok,
+} from "./types.ts";
 
 /**
  * Persistence (spec S10): the autosaved local copy and the `.json` exchange
@@ -125,9 +144,67 @@ export function readDiagram(value: unknown): Result<Diagram> {
     return err(kind === "state" ? "The diagram has no states or transitions" : "The diagram has no entities or relations");
   }
 
-  return kind === "state"
-    ? readStateDiagram(title, nodes, edges)
-    : readErDiagram({ version: FILE_VERSION, kind, title, nodes, edges });
+  if (kind === "state") return readStateDiagram(title, nodes, edges);
+  if (isGlyphDiagramKind(kind)) return readGlyphDiagram(kind, title, nodes, edges);
+  return readErDiagram({ version: FILE_VERSION, kind, title, nodes, edges });
+}
+
+function readGlyphNode(kind: GlyphDiagramKind, value: unknown): Result<GlyphNode> {
+  if (!isRecord(value)) return err("A node is not an object");
+  const { id, name, x, y, role, parentId } = value;
+  if (typeof id !== "string" || typeof name !== "string") return err("A node is missing its id or name");
+  if (typeof x !== "number" || !Number.isFinite(x)) return err(`The node "${id}" has an invalid x position`);
+  if (typeof y !== "number" || !Number.isFinite(y)) return err(`The node "${id}" has an invalid y position`);
+  const accepted: readonly string[] = GLYPH_ROLES[kind];
+  const known = typeof role === "string" && (isContainerRole(role as never) || isGlyphRole(role));
+  if (typeof role !== "string" || !known || (!isContainerRole(role as never) && !accepted.includes(role))) {
+    return err(
+      `The node "${id}" has an unknown role "${String(role)}" (a ${kind} diagram expects ${accepted.join(", ")}, package or region)`,
+    );
+  }
+  if (parentId !== null && typeof parentId !== "string") {
+    return err(`The node "${id}" has an invalid parentId "${String(parentId)}"`);
+  }
+  return ok({ id, name, x, y, role: role as GlyphNode["role"], parentId });
+}
+
+function readGlyphEdge(kind: GlyphDiagramKind, value: unknown): Result<GlyphEdge> {
+  if (!isRecord(value)) return err("A relation is not an object");
+  const { id, source, target, relation, label } = value;
+  if (typeof id !== "string" || typeof source !== "string" || typeof target !== "string") {
+    return err("A relation is missing its id, source or target");
+  }
+  if (typeof relation !== "string" || !isRelationKind(relation)) {
+    return err(`The relation "${id}" has an unknown relation "${String(relation)}" (expected ${RELATION_KINDS.join(", ")})`);
+  }
+  if (!GLYPH_RELATIONS[kind].includes(relation)) {
+    return err(`The relation "${id}" is a ${relation}, which a ${kind} diagram does not accept`);
+  }
+  if (typeof label !== "string") return err(`The relation "${id}" has no label`);
+  return ok({ id, source, target, relation, label });
+}
+
+function readGlyphDiagram(
+  kind: GlyphDiagramKind,
+  title: string,
+  nodes: unknown[],
+  edges: unknown[],
+): Result<GlyphDiagram> {
+  const parsedNodes: GlyphNode[] = [];
+  for (const node of nodes) {
+    const parsed = readGlyphNode(kind, node);
+    if (!parsed.ok) return err(parsed.error);
+    parsedNodes.push(parsed.value);
+  }
+
+  const parsedEdges: GlyphEdge[] = [];
+  for (const edge of edges) {
+    const parsed = readGlyphEdge(kind, edge);
+    if (!parsed.ok) return err(parsed.error);
+    parsedEdges.push(parsed.value);
+  }
+
+  return validate({ version: FILE_VERSION, kind, title, nodes: parsedNodes, edges: parsedEdges });
 }
 
 function readErDiagram(value: unknown): Result<ErDiagram> {

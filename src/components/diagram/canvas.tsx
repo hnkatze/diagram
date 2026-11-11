@@ -13,17 +13,19 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
-import { containerBox, isContainer, measureNode, measureState } from "@/lib/diagram/measure";
-import type { Diagram, ErDiagram, Point } from "@/lib/diagram/types";
+import { containerBox, isContainer, measureBox, measureState } from "@/lib/diagram/measure";
+import type { Diagram, ErDiagram, GlyphDiagram, Point } from "@/lib/diagram/types";
 import { isStateDiagram } from "@/lib/diagram/types";
 import {
   ContainerShape,
   EntityNode,
+  GlyphShape,
   RelationEdge,
   StateShape,
   TransitionEdge,
   type ContainerNodeType,
   type EntityNodeType,
+  type GlyphNodeType,
   type RelationEdgeType,
   type StateNodeType,
   type TransitionEdgeType,
@@ -35,10 +37,10 @@ import {
  * edge components instead of a flag inside the class ones.
  */
 
-type CanvasNode = EntityNodeType | StateNodeType | ContainerNodeType;
+type CanvasNode = EntityNodeType | GlyphNodeType | StateNodeType | ContainerNodeType;
 type CanvasEdge = RelationEdgeType | TransitionEdgeType;
 
-const nodeTypes: NodeTypes = { entity: EntityNode, state: StateShape, container: ContainerShape };
+const nodeTypes: NodeTypes = { entity: EntityNode, glyph: GlyphShape, state: StateShape, container: ContainerShape };
 const edgeTypes: EdgeTypes = { relation: RelationEdge, transition: TransitionEdge };
 
 function toNodes(diagram: Diagram, selectedId: string | null): CanvasNode[] {
@@ -78,25 +80,25 @@ function toNodes(diagram: Diagram, selectedId: string | null): CanvasNode[] {
 
   const entities: CanvasNode[] = diagram.nodes
     .filter((node) => !isContainer(node))
-    .map((node) => {
-      const size = measureNode(node, diagram.kind);
+    .map((node): CanvasNode => {
+      const size = measureBox(node, diagram.kind);
       const origin = node.parentId === null ? undefined : origins.get(node.parentId);
-      return {
+      const placement = {
         id: node.id,
-        type: "entity",
         position: origin ? { x: node.x - origin.x, y: node.y - origin.y } : { x: node.x, y: node.y },
         ...(origin && node.parentId !== null ? { parentId: node.parentId, extent: "parent" as const } : {}),
-        data: { node, kind: diagram.kind },
         selected: node.id === selectedId,
         style: { width: size.width, height: size.height },
       };
+      if ("fields" in node) return { ...placement, type: "entity", data: { node, kind: diagram.kind } };
+      return { ...placement, type: "glyph", data: { node } };
     });
 
   return [...containers, ...entities];
 }
 
 /** Absolute origin of the container that holds `id`, or null for a top-level node. */
-function parentOrigin(diagram: ErDiagram, id: string): Point | null {
+function parentOrigin(diagram: ErDiagram | GlyphDiagram, id: string): Point | null {
   const node = diagram.nodes.find((candidate) => candidate.id === id);
   const parent = node?.parentId ? diagram.nodes.find((candidate) => candidate.id === node.parentId) : undefined;
   if (!parent || !isContainer(parent)) return null;

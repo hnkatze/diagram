@@ -15,6 +15,7 @@ import type {
   DiagramField,
   DiagramNode,
   ErDiagram,
+  GlyphDiagram,
   StateDiagram,
   RelationKind,
   StateNode,
@@ -588,4 +589,23 @@ test("a package draws a folder tab and a region does not", () => {
 
   assert.match(toSvg(withRole("package")), /class="container-tab"/);
   assert.doesNotMatch(toSvg(withRole("region")), /class="container-tab"/);
+});
+
+test("a use case diagram draws a stick figure and an oval with stable classes", () => {
+  const diagram: GlyphDiagram = {
+    version: 1,
+    kind: "use-case",
+    title: "",
+    nodes: [
+      { id: "ana", name: "Ana <&>", x: 0, y: 0, role: "actor", parentId: null },
+      { id: "pagar", name: "Pagar", x: 200, y: 0, role: "usecase", parentId: null },
+    ],
+    edges: [{ id: "e", source: "ana", target: "pagar", relation: "directed-association", label: "" }],
+  };
+  const svg = toSvg(diagram);
+  assert.match(svg, /class="glyph-actor"/);
+  assert.match(svg, /class="glyph-usecase"/);
+  assert.match(svg, /Ana &lt;&amp;&gt;/);
+  assert.match(svg, /marker-directed-association/);
+  assert.equal(toSvg(diagram), svg);
 });

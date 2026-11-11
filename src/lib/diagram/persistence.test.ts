@@ -11,7 +11,7 @@ import {
   type KeyValueStore,
 } from "./persistence.ts";
 import type { Diagram } from "./types.ts";
-import { isStateDiagram } from "./types.ts";
+import { isErDiagram, isStateDiagram } from "./types.ts";
 
 const good = (): Diagram => ({
   version: 1,
@@ -231,7 +231,7 @@ test("the UML * shorthand is read as 0..* instead of rejecting the file", () => 
   assert.equal(result.ok, true);
   if (!result.ok) return;
   assert.equal(isStateDiagram(result.value), false);
-  if (isStateDiagram(result.value)) return;
+  if (!isErDiagram(result.value)) return;
   assert.equal(result.value.edges[0].sourceCardinality, "0..*");
   assert.equal(result.value.edges[0].targetCardinality, "0..*");
 });
@@ -303,7 +303,7 @@ test("a file with no cardinalities reads them as null", () => {
 
   const restored = fromFile(JSON.stringify(value));
   assert.equal(restored.ok, true);
-  if (!restored.ok || isStateDiagram(restored.value)) return;
+  if (!restored.ok || !isErDiagram(restored.value)) return;
   assert.equal(restored.value.edges[0].sourceCardinality, null);
   assert.equal(restored.value.edges[0].targetCardinality, null);
 });
@@ -360,4 +360,67 @@ test("a parentId that resolves to nothing is refused naming the value", () => {
     assert.match(result.error, /"a"/);
     assert.match(result.error, /ghost/);
   }
+});
+
+test("a glyph document round-trips through the envelope", () => {
+  const diagram: Diagram = {
+    version: 1,
+    kind: "use-case",
+    title: "Tienda",
+    nodes: [
+      { id: "ana", name: "Ana", x: 10, y: 20, role: "actor", parentId: null },
+      { id: "sistema", name: "Sistema", x: 0, y: 0, role: "region", parentId: null },
+      { id: "pagar", name: "Pagar", x: 90, y: 20, role: "usecase", parentId: "sistema" },
+    ],
+    edges: [{ id: "ana->pagar", source: "ana", target: "pagar", relation: "dependency", label: "«include»" }],
+  };
+  const result = fromFile(toFile(diagram));
+  assert.equal(result.ok, true);
+  if (result.ok) assert.deepEqual(result.value, diagram);
+  assert.deepEqual(JSON.parse(toFile(diagram)).version, FILE_VERSION);
+});
+
+const glyphFile = (node: object, edge: object = {}): string =>
+  JSON.stringify({
+    version: 1,
+    diagram: {
+      version: 1,
+      kind: "use-case",
+      title: "",
+      nodes: [
+        { id: "ana", name: "Ana", x: 0, y: 0, role: "actor", parentId: null, ...node },
+        { id: "pagar", name: "Pagar", x: 0, y: 0, role: "usecase", parentId: null },
+      ],
+      edges: [{ id: "e", source: "ana", target: "pagar", relation: "association", label: "", ...edge }],
+    },
+  });
+
+test("a glyph document with an unknown role is refused naming the node and the value", () => {
+  const result = fromFile(glyphFile({ role: "banana" }));
+  assert.equal(result.ok, false);
+  if (!result.ok) {
+    assert.match(result.error, /ana/);
+    assert.match(result.error, /banana/);
+  }
+});
+
+test("a glyph document with a role of another kind is refused", () => {
+  const result = fromFile(glyphFile({ role: "component" }));
+  assert.equal(result.ok, false);
+  if (!result.ok) assert.match(result.error, /component/);
+});
+
+test("a glyph document with a composition relation is refused naming the kind", () => {
+  const result = fromFile(glyphFile({}, { relation: "composition" }));
+  assert.equal(result.ok, false);
+  if (!result.ok) {
+    assert.match(result.error, /use-case/);
+    assert.match(result.error, /composition/);
+  }
+});
+
+test("a glyph relation to a missing node is refused", () => {
+  const result = fromFile(glyphFile({}, { target: "nadie" }));
+  assert.equal(result.ok, false);
+  if (!result.ok) assert.match(result.error, /nadie/);
 });

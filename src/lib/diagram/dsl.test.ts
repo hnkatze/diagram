@@ -5,7 +5,11 @@ import { parse, serialize } from "./dsl.ts";
 import { moveNode } from "./model.ts";
 import type { ErDiagram, RelationKind, StateDiagram } from "./types.ts";
 import { RELATION_KINDS } from "./types.ts";
-import { isErDiagram, isStateDiagram } from "./types.ts";
+import { isErDiagram, isGlyphDiagram, isStateDiagram } from "./types.ts";
+import type { GlyphDiagram } from "./types.ts";
+import { createHash } from "node:crypto";
+import { layout } from "./layout.ts";
+import { toSvg } from "./svg.ts";
 
 const SAMPLE = `diagram er "Tienda"
 
@@ -553,4 +557,112 @@ test("a container and an entity with the same name get distinct ids; unclosed bl
   const diagram = mustParse("package A {\n  entity A {\n  }\n}\n");
   assert.deepEqual(diagram.nodes.map((node) => node.id), ["a", "a-2"]);
   assert.match(mustFail("package Ventas {\n  entity A {\n  }\n"), /package "Ventas" is never closed/);
+});
+
+/* ------------------------------------------------------------ glyph family */
+
+function mustParseGlyph(text: string): GlyphDiagram {
+  const result = parse(text);
+  if (!result.ok) throw new Error(`expected a diagram, got: ${result.error}`);
+  if (!isGlyphDiagram(result.value)) throw new Error(`expected a glyph diagram, got ${result.value.kind}`);
+  return result.value;
+}
+
+const USE_CASE = `diagram use-case "Tienda"
+
+actor Ana
+region Sistema {
+  usecase Pagar
+  usecase Validar
+}
+
+Ana -- Pagar
+Pagar ..> Validar : "«include»"
+`;
+
+test("a use-case header with an actor, a usecase and one relation parses to kind, roles and edge", () => {
+  const diagram = mustParseGlyph('diagram use-case "Tienda"\nactor Ana\nusecase Pagar\nAna --> Pagar : "inicia"\n');
+  assert.equal(diagram.kind, "use-case");
+  assert.equal(diagram.title, "Tienda");
+  assert.deepEqual(diagram.nodes.map((node) => [node.id, node.role, node.parentId]), [
+    ["ana", "actor", null],
+    ["pagar", "usecase", null],
+  ]);
+  assert.deepEqual(diagram.edges, [
+    { id: "ana->pagar", source: "ana", target: "pagar", relation: "directed-association", label: "inicia" },
+  ]);
+});
+
+test("the usecase spelling of the header is the same kind", () => {
+  assert.equal(mustParseGlyph('diagram usecase "x"\nactor A\n').kind, "use-case");
+});
+
+test("a use case document with a region and an include dependency round-trips exactly", () => {
+  const first = mustParseGlyph(USE_CASE);
+  assert.deepEqual(first.nodes.map((node) => [node.id, node.role, node.parentId]), [
+    ["ana", "actor", null],
+    ["sistema", "region", null],
+    ["pagar", "usecase", "sistema"],
+    ["validar", "usecase", "sistema"],
+  ]);
+  const text = serialize(first);
+  assert.equal(text, USE_CASE);
+  assert.deepEqual(mustParseGlyph(text), first);
+  assert.equal(first.edges[1].label, "«include»");
+  assert.equal(first.edges[1].relation, "dependency");
+});
+
+test("a component node inside a use-case document is refused naming the node and the role", () => {
+  const result = parse('diagram use-case "x"\ncomponent Servicio\n');
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.match(result.error, /Servicio/);
+  assert.match(result.error, /component/);
+  assert.match(result.error, /use-case/);
+});
+
+test("a cardinality relation in a glyph diagram is refused naming the kind", () => {
+  const result = parse('diagram use-case "x"\nactor Ana\nusecase Pagar\nAna 1 -- 0..* Pagar\n');
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.match(result.error, /use-case/);
+  assert.match(result.error, /cardinalit/);
+});
+
+test("a composition arrow in a glyph diagram is refused naming the kind", () => {
+  for (const arrow of ["*--", "o--"]) {
+    const result = parse(`diagram use-case "x"\nactor Ana\nusecase Pagar\nAna ${arrow} Pagar\n`);
+    assert.equal(result.ok, false);
+    if (result.ok) continue;
+    assert.match(result.error, /use-case/);
+    assert.match(result.error, /composition|aggregation/);
+  }
+});
+
+test("a container cannot hold another container in a glyph diagram", () => {
+  const result = parse('diagram component "x"\npackage A {\n  region B {\n  }\n}\n');
+  assert.equal(result.ok, false);
+});
+
+test("the er family is unchanged by the glyph family", () => {
+  const text = `diagram uml "Tienda"
+
+package Ventas {
+  entity Usuario {
+    + id int pk
+    - email text uk nullable
+  }
+}
+
+entity Pedido {
+  id int pk
+}
+
+Usuario 1..* -- 0..1 Pedido : "realiza"
+Pedido <|-- Usuario
+`;
+  const parsed = mustParse(text);
+  const hash = (value: string): string => createHash("sha256").update(value).digest("hex");
+  assert.equal(hash(serialize(parsed)), "f746364543b4d42cfc35be96649b704df6ab06146aeb8602839e045d998322e0");
+  assert.equal(hash(toSvg(layout(parsed))), "92ef4ade97a14e84cddb4a8933bc29b214803ef826f91cac305050e0d3379918");
 });

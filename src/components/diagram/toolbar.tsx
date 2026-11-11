@@ -14,6 +14,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { SAMPLES } from "@/lib/diagram/samples";
 import type { Diagram, DiagramKind } from "@/lib/diagram/types";
+import { isGlyphDiagram } from "@/lib/diagram/types";
 
 export type ExportFormat = "svg" | "png1" | "png2" | "png3" | "json";
 
@@ -58,6 +59,9 @@ export function Toolbar(props: ToolbarProps) {
             ["er", "ER"],
             ["uml-class", "UML"],
             ["state", "Estado"],
+            ["use-case", "Casos de uso"],
+            ["component", "Componentes"],
+            ["communication", "Comunicación"],
           ] as const
         ).map(([kind, text]) => (
           <Button
@@ -74,7 +78,7 @@ export function Toolbar(props: ToolbarProps) {
       </div>
 
       <Button size="xs" variant="outline" onClick={props.onAddElement}>
-        {diagram.kind === "state" ? "+ Estado" : "+ Entidad"}
+        {diagram.kind === "state" ? "+ Estado" : isGlyphDiagram(diagram) ? "+ Elemento" : "+ Entidad"}
       </Button>
       <Button size="xs" variant="outline" onClick={props.onLayout}>
         Acomodar

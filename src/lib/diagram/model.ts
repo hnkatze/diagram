@@ -1,16 +1,33 @@
-import { bounds, measureNode } from "./measure.ts";
+import { bounds, measureBox } from "./measure.ts";
 import type {
   Cardinality,
   ClassDiagramKind,
   DiagramField,
   ErDiagram,
   ErNode,
+  GlyphDiagram,
+  GlyphEdge,
+  GlyphNode,
+  GlyphRole,
   Point,
   RelationEdge,
   RelationKind,
   Result,
 } from "./types.ts";
-import { DEFAULT_CARDINALITY, err, isCardinality, isContainerRole, isRelationKind, ok } from "./types.ts";
+import {
+  DEFAULT_CARDINALITY,
+  GLYPH_RELATIONS,
+  GLYPH_ROLES,
+  err,
+  isCardinality,
+  isContainerRole,
+  isGlyphDiagram,
+  isRelationKind,
+  ok,
+} from "./types.ts";
+
+/** The families whose nodes can nest in containers; the generic helpers below accept both. */
+export type NestedDiagram = ErDiagram | GlyphDiagram;
 
 /** Lowercase, dashed, accent-free id derived from an entity name. */
 export function slugify(name: string): string {
@@ -49,26 +66,39 @@ export function createField(partial: Partial<DiagramField> = {}): DiagramField {
   };
 }
 
-export function findNode(diagram: ErDiagram, id: string): ErNode | undefined {
-  return diagram.nodes.find((node) => node.id === id);
+export function findNode<T extends NestedDiagram>(diagram: T, id: string): T["nodes"][number] | undefined {
+  return (diagram.nodes as T["nodes"][number][]).find((node) => node.id === id);
 }
 
-function nameTaken(diagram: ErDiagram, name: string, exceptId?: string): boolean {
+function nameTaken(diagram: NestedDiagram, name: string, exceptId?: string): boolean {
   const slug = slugify(name);
   return diagram.nodes.some((node) => node.id !== exceptId && slugify(node.name) === slug);
 }
 
-export function addNode(diagram: ErDiagram, name: string, position: Point = { x: 0, y: 0 }): Result<ErDiagram> {
+/** The role a new node takes on the canvas, one per glyph kind. */
+const NEW_GLYPH_ROLE: Record<GlyphDiagram["kind"], GlyphRole> = {
+  "use-case": "usecase",
+  component: "component",
+  communication: "object",
+};
+
+/** A class-family node is an entity with no fields; a glyph node takes the default role of its kind. */
+export function addNode<T extends NestedDiagram>(diagram: T, name: string, position: Point = { x: 0, y: 0 }): Result<T> {
   const trimmed = name.trim();
   if (!trimmed) return err("Entity name is empty");
   if (nameTaken(diagram, trimmed)) return err(`Entity "${trimmed}" already exists`);
   const id = uniqueId(slugify(trimmed), diagram.nodes.map((node) => node.id));
-  const node: ErNode = { id, name: trimmed, x: position.x, y: position.y, fields: [], role: "entity", parentId: null };
-  return ok({ ...diagram, nodes: [...diagram.nodes, node] });
+  const placed = { id, name: trimmed, x: position.x, y: position.y, parentId: null };
+  if (isGlyphDiagram(diagram)) {
+    const node: GlyphNode = { ...placed, role: NEW_GLYPH_ROLE[diagram.kind] };
+    return ok({ ...diagram, nodes: [...diagram.nodes, node] } as T);
+  }
+  const node: ErNode = { ...placed, fields: [], role: "entity" };
+  return ok({ ...diagram, nodes: [...(diagram as ErDiagram).nodes, node] } as T);
 }
 
 /** Renaming rewrites the id, so every relation endpoint follows. */
-export function renameNode(diagram: ErDiagram, id: string, name: string): Result<ErDiagram> {
+export function renameNode<T extends NestedDiagram>(diagram: T, id: string, name: string): Result<T> {
   const target = findNode(diagram, id);
   if (!target) return err(`Unknown entity "${id}"`);
   const trimmed = name.trim();
@@ -80,30 +110,30 @@ export function renameNode(diagram: ErDiagram, id: string, name: string): Result
     slugify(trimmed),
     diagram.nodes.filter((node) => node.id !== id).map((node) => node.id),
   );
-  const nodes = diagram.nodes.map((node) =>
+  const nodes = (diagram.nodes as NestedDiagram["nodes"]).map((node) =>
     node.id === id ? { ...node, id: nextId, name: trimmed } : node,
   );
-  const edges = diagram.edges.map((edge) => ({
+  const edges = (diagram.edges as NestedDiagram["edges"]).map((edge) => ({
     ...edge,
     source: edge.source === id ? nextId : edge.source,
     target: edge.target === id ? nextId : edge.target,
   }));
-  return ok({ ...diagram, nodes, edges });
+  return ok({ ...diagram, nodes, edges } as T);
 }
 
-export function deleteNode(diagram: ErDiagram, id: string): ErDiagram {
+export function deleteNode<T extends NestedDiagram>(diagram: T, id: string): T {
   return {
     ...diagram,
-    nodes: diagram.nodes.filter((node) => node.id !== id),
-    edges: diagram.edges.filter((edge) => edge.source !== id && edge.target !== id),
-  };
+    nodes: (diagram.nodes as NestedDiagram["nodes"]).filter((node) => node.id !== id),
+    edges: (diagram.edges as NestedDiagram["edges"]).filter((edge) => edge.source !== id && edge.target !== id),
+  } as T;
 }
 
-export function moveNode(diagram: ErDiagram, id: string, x: number, y: number): ErDiagram {
+export function moveNode<T extends NestedDiagram>(diagram: T, id: string, x: number, y: number): T {
   return {
     ...diagram,
-    nodes: diagram.nodes.map((node) => (node.id === id ? { ...node, x, y } : node)),
-  };
+    nodes: (diagram.nodes as NestedDiagram["nodes"]).map((node) => (node.id === id ? { ...node, x, y } : node)),
+  } as T;
 }
 
 function withNodeFields(
@@ -146,10 +176,23 @@ export interface EdgeOptions {
   targetCardinality?: Cardinality | null;
 }
 
-export function addEdge(diagram: ErDiagram, source: string, target: string, options: EdgeOptions = {}): Result<ErDiagram> {
+export function addEdge<T extends NestedDiagram>(
+  diagram: T,
+  source: string,
+  target: string,
+  options: EdgeOptions = {},
+): Result<T> {
   if (!findNode(diagram, source)) return err(`Relation from unknown entity "${source}"`);
   if (!findNode(diagram, target)) return err(`Relation to unknown entity "${target}"`);
-  const id = uniqueId(`${source}->${target}`, diagram.edges.map((edge) => edge.id));
+  const id = uniqueId(`${source}->${target}`, (diagram.edges as NestedDiagram["edges"]).map((edge) => edge.id));
+  if (isGlyphDiagram(diagram)) {
+    const relation = options.relation ?? "association";
+    if (!GLYPH_RELATIONS[diagram.kind].includes(relation)) {
+      return err(`Relation "${id}" is a ${relation}, which a ${diagram.kind} diagram does not accept`);
+    }
+    const edge: GlyphEdge = { id, source, target, relation, label: options.label ?? "" };
+    return ok({ ...diagram, edges: [...diagram.edges, edge] } as T);
+  }
   const edge: RelationEdge = {
     id,
     source,
@@ -158,7 +201,7 @@ export function addEdge(diagram: ErDiagram, source: string, target: string, opti
     ...bothOrNone(options.sourceCardinality, options.targetCardinality),
     label: options.label ?? "",
   };
-  return ok({ ...diagram, edges: [...diagram.edges, edge] });
+  return ok({ ...diagram, edges: [...(diagram as ErDiagram).edges, edge] } as T);
 }
 
 /**
@@ -193,20 +236,72 @@ export function updateEdge(diagram: ErDiagram, edgeId: string, patch: Partial<Re
   };
 }
 
-export function deleteEdge(diagram: ErDiagram, edgeId: string): ErDiagram {
-  return { ...diagram, edges: diagram.edges.filter((edge) => edge.id !== edgeId) };
+export function deleteEdge<T extends NestedDiagram>(diagram: T, edgeId: string): T {
+  return { ...diagram, edges: (diagram.edges as NestedDiagram["edges"]).filter((edge) => edge.id !== edgeId) } as T;
 }
 
 export function setKind(diagram: ErDiagram, kind: ClassDiagramKind): ErDiagram {
   return { ...diagram, kind };
 }
 
-export function setTitle(diagram: ErDiagram, title: string): ErDiagram {
+export function setTitle<T extends NestedDiagram>(diagram: T, title: string): T {
   return { ...diagram, title };
 }
 
 /** Structural consistency check, used before accepting parsed text or imported JSON. */
-export function validate(diagram: ErDiagram): Result<ErDiagram> {
+export function validate<T extends NestedDiagram>(diagram: T): Result<T> {
+  const checked = isGlyphDiagram(diagram) ? validateGlyph(diagram) : validateClass(diagram as ErDiagram);
+  return checked.ok ? ok(diagram) : checked;
+}
+
+/** Glyph family: a role from the kind's table, flat containers, relations between real nodes. */
+function validateGlyph(diagram: GlyphDiagram): Result<GlyphDiagram> {
+  const ids = new Set<string>();
+  const names = new Set<string>();
+  const roles: readonly string[] = GLYPH_ROLES[diagram.kind];
+
+  for (const node of diagram.nodes) {
+    if (!node.name.trim()) return err(`Node "${node.id}" has an empty name`);
+    if (ids.has(node.id)) return err(`Duplicated node id "${node.id}"`);
+    if (!isContainerRole(node.role) && !roles.includes(node.role)) {
+      return err(
+        `Node "${node.name}" has role "${node.role}", which a ${diagram.kind} diagram does not accept (expected ${roles.join(", ")})`,
+      );
+    }
+    const slug = `${isContainerRole(node.role) ? "container" : "node"}:${slugify(node.name)}`;
+    if (names.has(slug)) return err(`Node "${node.name}" is duplicated`);
+    ids.add(node.id);
+    names.add(slug);
+  }
+
+  const containers = new Set(diagram.nodes.filter((node) => isContainerRole(node.role)).map((node) => node.id));
+  for (const node of diagram.nodes) {
+    if (node.parentId === null) continue;
+    if (!containers.has(node.parentId)) {
+      return err(`Node "${node.id}" has parentId "${node.parentId}", which is not a container`);
+    }
+    if (isContainerRole(node.role)) {
+      return err(`Container "${node.id}" cannot sit inside container "${node.parentId}"`);
+    }
+  }
+
+  const accepted: readonly string[] = GLYPH_RELATIONS[diagram.kind];
+  const nodeIds = new Set(diagram.nodes.filter((node: GlyphNode) => !isContainerRole(node.role)).map((node) => node.id));
+  for (const edge of diagram.edges) {
+    if (!isRelationKind(edge.relation)) {
+      return err(`Relation "${edge.id}" has an unknown relation "${String(edge.relation)}"`);
+    }
+    if (!accepted.includes(edge.relation)) {
+      return err(`Relation "${edge.id}" is a ${edge.relation}, which a ${diagram.kind} diagram does not accept`);
+    }
+    if (!nodeIds.has(edge.source)) return err(`Relation "${edge.id}" points to unknown node "${edge.source}"`);
+    if (!nodeIds.has(edge.target)) return err(`Relation "${edge.id}" points to unknown node "${edge.target}"`);
+  }
+
+  return ok(diagram);
+}
+
+function validateClass(diagram: ErDiagram): Result<ErDiagram> {
   const ids = new Set<string>();
   const names = new Set<string>();
 
@@ -258,26 +353,26 @@ export function validate(diagram: ErDiagram): Result<ErDiagram> {
  * Applies a re-parsed structure onto the previous one: entities that still
  * exist keep their position, brand new ones are stacked below the diagram.
  */
-export function mergeStructure(
-  parsed: ErDiagram,
-  previous: ErDiagram,
-): { diagram: ErDiagram; addedIds: string[] } {
-  const known = new Map(previous.nodes.map((node) => [node.id, node]));
-  const addedIds = parsed.nodes.filter((node) => !known.has(node.id)).map((node) => node.id);
+export function mergeStructure<T extends NestedDiagram>(
+  parsed: T,
+  previous: T,
+): { diagram: T; addedIds: string[] } {
+  const known = new Map((previous.nodes as NestedDiagram["nodes"]).map((node) => [node.id, node]));
+  const addedIds = (parsed.nodes as NestedDiagram["nodes"]).filter((node) => !known.has(node.id)).map((node) => node.id);
 
   const box = previous.nodes.length > 0 ? bounds(previous) : { x: 0, y: 0, width: 0, height: 0 };
   let cursorY = box.y + box.height + 60;
   let cursorX = box.x;
 
-  const nodes = parsed.nodes.map((node) => {
+  const nodes = (parsed.nodes as NestedDiagram["nodes"]).map((node) => {
     const previousNode = known.get(node.id);
     if (previousNode) return { ...node, x: previousNode.x, y: previousNode.y };
-    const size = measureNode(node, parsed.kind);
+    const size = measureBox(node, parsed.kind);
     const placed = { ...node, x: cursorX, y: cursorY };
     cursorY += size.height + 40;
     cursorX = box.x;
     return placed;
   });
 
-  return { diagram: { ...parsed, nodes }, addedIds };
+  return { diagram: { ...parsed, nodes } as T, addedIds };
 }

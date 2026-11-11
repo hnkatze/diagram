@@ -4,8 +4,8 @@ import type {
   Diagram,
   DiagramField,
   DiagramKind,
-  ErDiagram,
   ErNode,
+  GlyphNode,
   Point,
   Rect,
   RelationKind,
@@ -47,6 +47,20 @@ export const CONTAINER_INSET = 24;
 export const CONTAINER_TITLE_HEIGHT = 28;
 /** Fixed per-character title width of an empty container, so its size is deterministic. */
 export const CONTAINER_TITLE_CHAR_WIDTH = 9;
+
+/**
+ * Glyph geometry. One size per role, shared by the canvas, the layout and the
+ * exporter; the label is drawn inside (or under) the box and may overflow it.
+ */
+export const ACTOR_WIDTH = 40;
+export const ACTOR_HEIGHT = 60;
+export const USECASE_WIDTH = 180;
+export const USECASE_HEIGHT = 72;
+export const COMPONENT_WIDTH = 180;
+export const COMPONENT_HEIGHT = 72;
+export const INTERFACE_SIZE = 60;
+export const OBJECT_WIDTH = 160;
+export const OBJECT_HEIGHT = 64;
 
 /** Glyphs that need extra room so long names do not clip. */
 const WIDE_GLYPHS = "mwMW@#%&";
@@ -98,8 +112,40 @@ export function measureState(node: StateNode): Size {
   return { width, height: STATE_HEIGHT };
 }
 
+/** Size of a glyph node by role. A container has no size of its own: `containerBox` derives it. */
+export function measureGlyph(node: GlyphNode): Size {
+  switch (node.role) {
+    case "actor":
+      return { width: ACTOR_WIDTH, height: ACTOR_HEIGHT };
+    case "usecase":
+      return { width: USECASE_WIDTH, height: USECASE_HEIGHT };
+    case "component":
+      return { width: COMPONENT_WIDTH, height: COMPONENT_HEIGHT };
+    case "interface":
+      return { width: INTERFACE_SIZE, height: INTERFACE_SIZE };
+    case "object":
+      return { width: OBJECT_WIDTH, height: OBJECT_HEIGHT };
+    default:
+      return { width: 0, height: 0 };
+  }
+}
+
+/** A node of either container-capable family. */
+export type BoxNode = ErNode | GlyphNode;
+
+/** The part of a diagram that container geometry needs: its kind and its nodes. */
+export interface BoxDiagram {
+  kind: DiagramKind;
+  nodes: readonly BoxNode[];
+}
+
+/** Size of a non-container node of either container-capable family. */
+export function measureBox(node: BoxNode, kind: DiagramKind): Size {
+  return "fields" in node ? measureNode(node, kind) : measureGlyph(node);
+}
+
 /** True for the roles that hold other nodes. */
-export function isContainer(node: ErNode): boolean {
+export function isContainer(node: BoxNode): boolean {
   return isContainerRole(node.role);
 }
 
@@ -108,7 +154,7 @@ export function isContainer(node: ErNode): boolean {
  * children grown by the inset, with the title strip reserved on top. An empty
  * container keeps its own position and takes the minimum size that fits its title.
  */
-export function containerBox(diagram: ErDiagram, container: ErNode): Rect {
+export function containerBox(diagram: BoxDiagram, container: BoxNode): Rect {
   const children = diagram.nodes.filter((node) => node.parentId === container.id);
   if (children.length === 0) {
     return {
@@ -124,7 +170,7 @@ export function containerBox(diagram: ErDiagram, container: ErNode): Rect {
   let maxX = -Infinity;
   let maxY = -Infinity;
   for (const child of children) {
-    const size = measureNode(child, diagram.kind);
+    const size = measureBox(child, diagram.kind);
     minX = Math.min(minX, child.x);
     minY = Math.min(minY, child.y);
     maxX = Math.max(maxX, child.x + size.width);
@@ -149,7 +195,7 @@ const CONTAINER_TAB_RADIUS = 6;
  * as the title plus the inset, so the title sits on it. `region` and entities get
  * none. Canvas and exporter both draw this and neither computes its own.
  */
-export function containerTabPath(node: ErNode, box: Rect): string | null {
+export function containerTabPath(node: BoxNode, box: Rect): string | null {
   if (node.role !== "package") return null;
   const width = Math.min(box.width, estimateTextWidth(node.name, ROW_FONT_SIZE) + CONTAINER_INSET);
   const r = CONTAINER_TAB_RADIUS;
@@ -330,8 +376,8 @@ export function bounds(diagram: Diagram, padding = 40): Rect {
 
   const boxes: { node: { x: number; y: number }; size: Size }[] = isStateDiagram(diagram)
     ? diagram.nodes.map((node) => ({ node, size: measureState(node) }))
-    : diagram.nodes.map((node) => {
-        if (!isContainer(node)) return { node, size: measureNode(node, diagram.kind) };
+    : diagram.nodes.map((node: BoxNode) => {
+        if (!isContainer(node)) return { node, size: measureBox(node, diagram.kind) };
         const rect = containerBox(diagram, node);
         return { node: rect, size: rect };
       });

@@ -20,16 +20,19 @@ import {
   formatFieldLabel,
   isContainer,
   markerEnd,
-  measureNode,
+  measureBox,
   measureState,
 } from "./measure.ts";
-import type { EdgeMarker } from "./measure.ts";
+import type { BoxNode, EdgeMarker } from "./measure.ts";
 import { isStateDiagram } from "./types.ts";
 import type {
   Diagram,
   DiagramKind,
   ErDiagram,
   ErNode,
+  GlyphDiagram,
+  GlyphEdge,
+  GlyphNode,
   Point,
   Rect,
   RelationEdge,
@@ -70,6 +73,9 @@ const TITLE_FONT_SIZE = 20;
 
 /** Corner radius shared by an entity box and a state box. */
 const BOX_RADIUS = 8;
+
+/** Head radius of the actor stick figure; the body is drawn relative to it. */
+const ACTOR_HEAD_RADIUS = 9;
 
 /**
  * Id of the single arrowhead marker of a state document. A constant, not a hash
@@ -217,44 +223,49 @@ export function toSvg(diagram: Diagram, options: SvgOptions = {}): string {
     );
   }
 
-  parts.push(...(isStateDiagram(diagram) ? stateBody(diagram, frame) : classBody(diagram, frame)));
+  parts.push(...(isStateDiagram(diagram) ? stateBody(diagram, frame) : nestedBody(diagram, frame)));
   parts.push("</svg>");
   return parts.join("");
 }
 
-function classBody(diagram: ErDiagram, frame: Frame): string[] {
+/** Class and glyph families: containers, then relations, then the nodes drawn by their own renderer. */
+function nestedBody(diagram: ErDiagram | GlyphDiagram, frame: Frame): string[] {
+  const nodes: readonly BoxNode[] = diagram.nodes;
+  const edges: readonly (RelationEdge | GlyphEdge)[] = diagram.edges;
   const boxes = new Map<string, Rect>();
-  for (const node of diagram.nodes) {
+  for (const node of nodes) {
     // A container's rectangle is already absolute; only its origin moves into the document.
     const placed = isContainer(node) ? containerBox(diagram, node) : node;
-    const size = isContainer(node) ? containerBox(diagram, node) : measureNode(node, diagram.kind);
+    const size = isContainer(node) ? containerBox(diagram, node) : measureBox(node, diagram.kind);
     boxes.set(node.id, boxOf(placed, size, frame));
   }
 
   const parts: string[] = [];
 
   // Containers go first, so neither a child nor a relation is painted over by one.
-  for (const node of diagram.nodes) {
+  for (const node of nodes) {
     const containerRect = boxes.get(node.id);
     if (!containerRect || !isContainer(node)) continue;
     parts.push(renderContainer(node, containerRect, frame));
   }
 
   // Relations go under the entities so a box always covers its own edge ends.
-  for (const edge of diagram.edges) {
+  for (const edge of edges) {
     parts.push(renderEdge(edge, boxes, frame));
   }
 
-  for (const node of diagram.nodes) {
+  for (const node of nodes) {
     const entityBox = boxes.get(node.id);
     if (!entityBox || isContainer(node)) continue;
-    parts.push(renderNode(node, entityBox, diagram.kind, frame.palette));
+    parts.push(
+      "fields" in node ? renderNode(node, entityBox, diagram.kind, frame.palette) : renderGlyph(node, entityBox, frame.palette),
+    );
   }
 
   return parts;
 }
 
-function renderContainer(node: ErNode, box: Rect, frame: Frame): string {
+function renderContainer(node: BoxNode, box: Rect, frame: Frame): string {
   const palette = frame.palette;
   const tab = containerTabPath(node, box);
   return [
@@ -264,7 +275,7 @@ function renderContainer(node: ErNode, box: Rect, frame: Frame): string {
   ].join("");
 }
 
-function renderEdge(edge: RelationEdge, boxes: Map<string, Rect>, frame: Frame): string {
+function renderEdge(edge: RelationEdge | GlyphEdge, boxes: Map<string, Rect>, frame: Frame): string {
   const source = boxes.get(edge.source);
   const target = boxes.get(edge.target);
   if (!source || !target) return "";
@@ -316,13 +327,13 @@ function renderEdge(edge: RelationEdge, boxes: Map<string, Rect>, frame: Frame):
   const targetCardX = round(cards.target.x);
   const targetCardY = round(cards.target.y);
 
-  const sourceText = cardinalityLabel(edge.sourceCardinality);
+  const sourceText = "sourceCardinality" in edge ? cardinalityLabel(edge.sourceCardinality) : "";
   if (sourceText !== "") {
     parts.push(
       `<text class="c" x="${sourceCardX}" y="${sourceCardY}" text-anchor="middle">${escapeXml(sourceText)}</text>`,
     );
   }
-  const targetText = cardinalityLabel(edge.targetCardinality);
+  const targetText = "targetCardinality" in edge ? cardinalityLabel(edge.targetCardinality) : "";
   if (targetText !== "") {
     parts.push(
       `<text class="c" x="${targetCardX}" y="${targetCardY}" text-anchor="middle">${escapeXml(targetText)}</text>`,
@@ -395,6 +406,45 @@ function renderNode(node: ErNode, box: Rect, kind: DiagramKind, palette: Palette
   );
 
   return parts.join("");
+}
+
+/**
+ * Glyph nodes: a stick figure for `actor` and an oval for `usecase`. The other
+ * roles have no glyph yet and fall back to a plain labelled box.
+ */
+function renderGlyph(node: GlyphNode, box: Rect, palette: Palette): string {
+  const centerX = round(box.x + box.width / 2);
+  const stroke = `fill="none" stroke="${palette.stroke}" stroke-width="1.5" stroke-linecap="round"`;
+  const label = (y: number): string =>
+    `<text class="n" x="${centerX}" y="${round(y)}" text-anchor="middle">${escapeXml(node.name)}</text>`;
+
+  if (node.role === "actor") {
+    const top = box.y;
+    return [
+      `<g class="glyph-actor">`,
+      `<circle cx="${centerX}" cy="${round(top + ACTOR_HEAD_RADIUS)}" r="${ACTOR_HEAD_RADIUS}" ${stroke}/>`,
+      `<path d="M ${centerX} ${round(top + 2 * ACTOR_HEAD_RADIUS)} L ${centerX} ${round(top + 28)} M ${round(centerX - 14)} ${round(top + 19)} L ${round(centerX + 14)} ${round(top + 19)} M ${centerX} ${round(top + 28)} L ${round(centerX - 12)} ${round(top + 42)} M ${centerX} ${round(top + 28)} L ${round(centerX + 12)} ${round(top + 42)}" ${stroke}/>`,
+      label(top + box.height - 7),
+      `</g>`,
+    ].join("");
+  }
+
+  const centerY = box.y + box.height / 2;
+  if (node.role === "usecase") {
+    return [
+      `<g class="glyph-usecase">`,
+      `<ellipse cx="${centerX}" cy="${round(centerY)}" rx="${round(box.width / 2)}" ry="${round(box.height / 2)}" fill="${palette.header}" stroke="${palette.stroke}" stroke-width="1.5"/>`,
+      label(centerY),
+      `</g>`,
+    ].join("");
+  }
+
+  return [
+    `<g class="glyph-box">`,
+    `<rect x="${box.x}" y="${box.y}" width="${box.width}" height="${box.height}" rx="${BOX_RADIUS}" fill="${palette.header}" stroke="${palette.stroke}" stroke-width="1.5"/>`,
+    label(centerY),
+    `</g>`,
+  ].join("");
 }
 
 /**

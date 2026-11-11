@@ -4,7 +4,10 @@
  */
 
 /** Every family the model knows about. */
-export type DiagramKind = "er" | "uml-class" | "state";
+export type DiagramKind = "er" | "uml-class" | "state" | GlyphDiagramKind;
+
+/** The glyph families: nodes carry a name and a drawing, edges carry no cardinality. */
+export type GlyphDiagramKind = "use-case" | "component" | "communication";
 
 /** The two class families: nodes carry fields, edges carry cardinalities. */
 export type ClassDiagramKind = "er" | "uml-class";
@@ -30,6 +33,12 @@ export type RelationKind =
 export type NodeRole = "entity" | "package" | "region";
 
 export type StateRole = "state" | "initial" | "final";
+
+/** What a glyph-family node is drawn as. Each kind declares the roles it accepts. */
+export type GlyphRole = "actor" | "usecase" | "component" | "interface" | "object";
+
+/** The roles that hold other nodes; shared by every family that nests. */
+export type ContainerRole = "package" | "region";
 
 export interface DiagramField {
   name: string;
@@ -113,7 +122,36 @@ export interface StateDiagram {
   edges: Transition[];
 }
 
-export type Diagram = ErDiagram | StateDiagram;
+/** A node of a glyph diagram: a name, a position and a role, and nothing else. */
+export interface GlyphNode {
+  id: string;
+  name: string;
+  x: number;
+  y: number;
+  /** A glyph role, or a container (`package`/`region`) that holds other nodes. */
+  role: GlyphRole | ContainerRole;
+  /** Id of the container this node sits in; `null` means top level. */
+  parentId: string | null;
+}
+
+/** A relation between two glyph nodes. It never carries a cardinality. */
+export interface GlyphEdge {
+  id: string;
+  source: string;
+  target: string;
+  relation: RelationKind;
+  label: string;
+}
+
+export interface GlyphDiagram {
+  version: typeof DIAGRAM_VERSION;
+  kind: GlyphDiagramKind;
+  title: string;
+  nodes: GlyphNode[];
+  edges: GlyphEdge[];
+}
+
+export type Diagram = ErDiagram | StateDiagram | GlyphDiagram;
 
 /** The class families, the only ones with fields and cardinalities. */
 export type ClassDiagram = ErDiagram;
@@ -151,6 +189,20 @@ export const RELATION_KINDS: readonly RelationKind[] = [
   "dependency",
 ];
 
+/** The roles each glyph kind declares. A role outside its kind's list is refused. */
+export const GLYPH_ROLES: Record<GlyphDiagramKind, readonly GlyphRole[]> = {
+  "use-case": ["actor", "usecase"],
+  component: ["component", "interface"],
+  communication: ["object"],
+};
+
+/** The relations each glyph kind accepts: everything but the ownership diamonds. */
+export const GLYPH_RELATIONS: Record<GlyphDiagramKind, readonly RelationKind[]> = {
+  "use-case": ["association", "directed-association", "generalization", "realization", "dependency"],
+  component: ["association", "directed-association", "generalization", "realization", "dependency"],
+  communication: ["association", "directed-association", "generalization", "realization", "dependency"],
+};
+
 export const NODE_ROLES: readonly NodeRole[] = ["entity", "package", "region"];
 
 export const VISIBILITIES: readonly Visibility[] = ["+", "-", "#"];
@@ -186,8 +238,8 @@ export function isNodeRole(value: string): value is NodeRole {
 }
 
 /** A container is a class-family node that holds other nodes instead of fields. */
-export function isContainerRole(role: NodeRole): boolean {
-  return role !== "entity";
+export function isContainerRole(role: NodeRole | GlyphRole | ContainerRole): role is ContainerRole {
+  return role === "package" || role === "region";
 }
 
 export function isVisibility(value: string): value is Visibility {
@@ -195,7 +247,15 @@ export function isVisibility(value: string): value is Visibility {
 }
 
 export function isDiagramKind(value: string): value is DiagramKind {
-  return value === "er" || value === "uml-class" || value === "state";
+  return value === "er" || value === "uml-class" || value === "state" || isGlyphDiagramKind(value);
+}
+
+export function isGlyphDiagramKind(value: string): value is GlyphDiagramKind {
+  return value === "use-case" || value === "component" || value === "communication";
+}
+
+export function isGlyphRole(value: string): value is GlyphRole {
+  return value === "actor" || value === "usecase" || value === "component" || value === "interface" || value === "object";
 }
 
 export function isClassDiagramKind(value: string): value is ClassDiagramKind {
@@ -204,7 +264,11 @@ export function isClassDiagramKind(value: string): value is ClassDiagramKind {
 
 /** Narrows the union without a cast, so class-only helpers stay class-only. */
 export function isErDiagram(diagram: Diagram): diagram is ErDiagram {
-  return diagram.kind !== "state";
+  return isClassDiagramKind(diagram.kind);
+}
+
+export function isGlyphDiagram(diagram: Diagram): diagram is GlyphDiagram {
+  return isGlyphDiagramKind(diagram.kind);
 }
 
 export function isStateDiagram(diagram: Diagram): diagram is StateDiagram {

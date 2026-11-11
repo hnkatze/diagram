@@ -96,6 +96,42 @@ Enviado --> Entregado : "confirmar entrega"
 Entregado --> final
 `;
 
+const USE_CASE_SAMPLE = `diagram use-case "Tienda en línea"
+
+actor Cliente
+actor Cajero
+
+region Tienda {
+  usecase Comprar
+  usecase Pagar
+  usecase Facturar
+}
+
+Cliente -- Comprar
+Cajero -- Pagar
+Comprar ..> Pagar : "«include»"
+`;
+
+const COMPONENT_SAMPLE = `diagram component "Pagos"
+
+component Tienda
+component Pasarela
+interface IPago
+
+Tienda ..> IPago
+IPago <.. Pasarela
+`;
+
+const COMMUNICATION_SAMPLE = `diagram communication "Pago de un pedido"
+
+object Cliente
+object Tienda
+object Pasarela
+
+Cliente -- Tienda : "1: pagar"
+Tienda -- Pasarela : "2: confirmar"
+`;
+
 export const ER_SAMPLE_TEXT = ER_SAMPLE;
 export const UML_SAMPLE_TEXT = UML_SAMPLE;
 export const STATE_SAMPLE_TEXT = STATE_SAMPLE;
@@ -111,7 +147,23 @@ export const SAMPLES: readonly Sample[] = [
   { id: "er", label: "Tienda (ER)", kind: "er", text: ER_SAMPLE },
   { id: "uml", label: "Modelo de dominio (UML)", kind: "uml-class", text: UML_SAMPLE },
   { id: "estado", label: "Ciclo del pedido (estados)", kind: "state", text: STATE_SAMPLE },
+  { id: "casos-de-uso", label: "Tienda en línea (casos de uso)", kind: "use-case", text: USE_CASE_SAMPLE },
+  { id: "componentes", label: "Pagos (componentes)", kind: "component", text: COMPONENT_SAMPLE },
+  { id: "comunicacion", label: "Pago de un pedido (comunicación)", kind: "communication", text: COMMUNICATION_SAMPLE },
 ];
+
+/**
+ * The bundled sample each kind starts from when the kind control switches. Every
+ * entry is a sample of its own kind: a kind never falls back to another family's.
+ */
+export const SAMPLE_BY_KIND: Record<DiagramKind, string> = {
+  er: "er",
+  "uml-class": "uml",
+  state: "estado",
+  "use-case": "casos-de-uso",
+  component: "componentes",
+  communication: "comunicacion",
+};
 
 function build(text: string): Diagram {
   const parsed = parse(text);

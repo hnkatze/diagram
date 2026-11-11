@@ -20,7 +20,21 @@ import {
   updateField,
   validate,
 } from "./model.ts";
-import type { ErDiagram } from "./types.ts";
+import type { ErDiagram, GlyphDiagram } from "./types.ts";
+import { isErDiagram } from "./types.ts";
+
+function glyphFixture(kind: GlyphDiagram["kind"] = "use-case"): GlyphDiagram {
+  return {
+    version: 1,
+    kind,
+    title: "Tienda",
+    nodes: [
+      { id: "cliente", name: "Cliente", x: 0, y: 0, role: "actor", parentId: null },
+      { id: "comprar", name: "Comprar", x: 100, y: 0, role: "usecase", parentId: null },
+    ],
+    edges: [],
+  };
+}
 
 /** Usuario -> Pedido with one field each, the base fixture for the operations below. */
 function fixture(): ErDiagram {
@@ -144,6 +158,79 @@ test("addEdge refuses an endpoint that does not exist", () => {
   assert.match(added.error, /unknown/i);
 });
 
+test("addNode on a glyph diagram starts at the role of its kind, at top level", () => {
+  const roles = { "use-case": "usecase", component: "component", communication: "object" } as const;
+  for (const [kind, role] of Object.entries(roles)) {
+    const base = glyphFixture(kind as GlyphDiagram["kind"]);
+    const added = addNode(base, "Pagar");
+    assert.equal(added.ok, true, kind);
+    if (!added.ok) continue;
+    const created = added.value.nodes[added.value.nodes.length - 1];
+    assert.equal(created.role, role);
+    assert.equal(created.parentId, null);
+    assert.equal(created.id, "pagar");
+    assert.equal(added.value.kind, kind);
+    assert.equal(added.value.title, "Tienda");
+    assert.equal(added.value.nodes.length, base.nodes.length + 1);
+  }
+});
+
+test("addNode on a glyph diagram refuses an empty or repeated name with the module's errors", () => {
+  assert.deepEqual(addNode(glyphFixture(), "  "), { ok: false, error: "Entity name is empty" });
+  assert.deepEqual(addNode(glyphFixture(), "Cliente"), { ok: false, error: 'Entity "Cliente" already exists' });
+});
+
+test("addEdge on a glyph diagram adds an association with no label and no cardinality", () => {
+  const added = addEdge(glyphFixture(), "cliente", "comprar");
+  assert.equal(added.ok, true);
+  if (!added.ok) return;
+  assert.deepEqual(added.value.edges, [
+    { id: "cliente->comprar", source: "cliente", target: "comprar", relation: "association", label: "" },
+  ]);
+});
+
+test("addEdge on a glyph diagram refuses an endpoint that does not exist", () => {
+  const added = addEdge(glyphFixture(), "cliente", "fantasma");
+  assert.deepEqual(added, { ok: false, error: 'Relation to unknown entity "fantasma"' });
+  const from = addEdge(glyphFixture(), "fantasma", "cliente");
+  assert.deepEqual(from, { ok: false, error: 'Relation from unknown entity "fantasma"' });
+});
+
+test("addEdge on a glyph diagram refuses a relation its kind does not accept", () => {
+  const added = addEdge(glyphFixture(), "cliente", "comprar", { relation: "composition" });
+  assert.equal(added.ok, false);
+  if (added.ok) return;
+  assert.match(added.error, /use-case/);
+});
+
+test("the class family keeps its addNode and addEdge results", () => {
+  const node = addNode(createDiagram("uml-class", "T"), "Usuario", { x: 3, y: 4 });
+  assert.deepEqual(node, {
+    ok: true,
+    value: {
+      version: 1,
+      kind: "uml-class",
+      title: "T",
+      nodes: [{ id: "usuario", name: "Usuario", x: 3, y: 4, fields: [], role: "entity", parentId: null }],
+      edges: [],
+    },
+  });
+  assert.deepEqual(addNode(createDiagram("er", ""), " "), { ok: false, error: "Entity name is empty" });
+  const edge = addEdge(fixture(), "pedido", "usuario");
+  assert.equal(edge.ok, true);
+  if (!edge.ok) return;
+  assert.deepEqual(edge.value.edges[1], {
+    id: "pedido->usuario",
+    source: "pedido",
+    target: "usuario",
+    relation: "association",
+    sourceCardinality: "1..*",
+    targetCardinality: "1..*",
+    label: "",
+  });
+  assert.deepEqual(addEdge(fixture(), "usuario", "fantasma"), { ok: false, error: 'Relation to unknown entity "fantasma"' });
+});
+
 test("addEdge allows a self relation and gives repeated pairs distinct ids", () => {
   const self = addEdge(fixture(), "usuario", "usuario", { label: "delega" });
   assert.equal(self.ok, true);
@@ -215,7 +302,7 @@ test("a cardinality is stated on both ends of a relation or on neither", () => {
   assert.equal(filled.edges[0].targetCardinality, "0..*");
   assert.notEqual(filled.edges[0].sourceCardinality, null);
 
-  const one = addEdge(base, "usuario", "pedido", { sourceCardinality: "1", targetCardinality: null });
+  const one = addEdge(base, "usuario", "pedido", { sourceCardinality: "1..*", targetCardinality: null });
   assert.equal(one.ok, true);
   if (!one.ok) return;
   const added = one.value.edges[one.value.edges.length - 1];
@@ -239,7 +326,7 @@ test("a relation whose cardinalities were cleared survives serialize and parse",
   const parsed = parse(serialize(cleared));
 
   assert.equal(parsed.ok, true);
-  if (!parsed.ok || parsed.value.kind === "state") return;
+  if (!parsed.ok || !isErDiagram(parsed.value)) return;
   assert.equal(parsed.value.edges[0].sourceCardinality, null);
   assert.equal(parsed.value.edges[0].targetCardinality, null);
   assert.equal(serialize(parsed.value), serialize(cleared));

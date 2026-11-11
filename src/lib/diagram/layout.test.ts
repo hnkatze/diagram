@@ -2,12 +2,13 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { layout, layoutNewNodes } from "./layout.ts";
-import { CONTAINER_INSET, CONTAINER_TITLE_HEIGHT, containerBox, isContainer, measureNode, measureState } from "./measure.ts";
+import { CONTAINER_INSET, CONTAINER_TITLE_HEIGHT, containerBox, isContainer, measureGlyph, measureNode, measureState } from "./measure.ts";
 import type {
   ClassDiagramKind,
   DiagramEdge,
   DiagramNode,
   ErDiagram,
+  GlyphDiagram,
   Rect,
   StateDiagram,
   StateNode,
@@ -312,4 +313,34 @@ test("containers side by side do not intersect", () => {
   const placed = layout(twoPackages([]));
   const [uno, dos] = placed.nodes.filter(isContainer).map((container) => containerBox(placed, container));
   assert.ok(overlapDepth(uno, dos) <= 0, `overlap of ${overlapDepth(uno, dos)}px`);
+});
+
+test("a glyph child inside a region lies inside the container rectangle after layout", () => {
+  const diagram: GlyphDiagram = {
+    version: 1,
+    kind: "use-case",
+    title: "",
+    nodes: [
+      { id: "ana", name: "Ana", x: 0, y: 0, role: "actor", parentId: null },
+      { id: "sistema", name: "Sistema", x: 0, y: 0, role: "region", parentId: null },
+      { id: "pagar", name: "Pagar", x: 0, y: 0, role: "usecase", parentId: "sistema" },
+      { id: "validar", name: "Validar", x: 0, y: 0, role: "usecase", parentId: "sistema" },
+    ],
+    edges: [
+      { id: "a", source: "ana", target: "pagar", relation: "association", label: "" },
+      { id: "b", source: "pagar", target: "validar", relation: "dependency", label: "«include»" },
+    ],
+  };
+  const placed = layout(diagram);
+  assert.deepEqual(layout(diagram), placed);
+  const region = placed.nodes.find((node) => node.id === "sistema");
+  assert.ok(region);
+  const box = containerBox(placed, region);
+  for (const child of placed.nodes.filter((node) => node.parentId === "sistema")) {
+    const size = measureGlyph(child);
+    assert.ok(child.x >= box.x + CONTAINER_INSET && child.y >= box.y + CONTAINER_TITLE_HEIGHT + CONTAINER_INSET);
+    assert.ok(child.x + size.width <= box.x + box.width - CONTAINER_INSET);
+    assert.ok(child.y + size.height <= box.y + box.height - CONTAINER_INSET);
+  }
+  assert.deepEqual({ x: region.x, y: region.y }, { x: box.x, y: box.y });
 });

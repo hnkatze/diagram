@@ -1,8 +1,8 @@
 import dagre from "@dagrejs/dagre";
 
-import { containerBox, isContainer, measureNode, measureState } from "./measure.ts";
+import { containerBox, isContainer, measureBox, measureState } from "./measure.ts";
 import { isStateDiagram } from "./types.ts";
-import type { Diagram, ErDiagram, Point, Size } from "./types.ts";
+import type { Diagram, ErDiagram, GlyphDiagram, Point, Size } from "./types.ts";
 
 /**
  * Automatic layout (specs S6, S8). Deterministic: the same diagram always
@@ -102,39 +102,40 @@ export function layout<T extends Diagram>(diagram: T): T {
     return { ...diagram, nodes: diagram.nodes.map((node) => moved(node, positions)) };
   }
 
-  return layoutClassNodes(diagram) as T;
+  return layoutNested(diagram as ErDiagram | GlyphDiagram) as T;
 }
 
 /**
- * Class family: dagre places the children and the free nodes, then every
+ * Class and glyph families: dagre places the children and the free nodes, then every
  * container is anchored to its children through `containerBox`, so the rectangle
  * stays derived and is never decided here.
  */
-function layoutClassNodes(diagram: ErDiagram): ErDiagram {
+function layoutNested<D extends ErDiagram | GlyphDiagram>(diagram: D): D {
   const parents = new Map<string, string>();
   for (const node of diagram.nodes) {
     if (node.parentId !== null) parents.set(node.id, node.parentId);
   }
 
+  const all: ErDiagram["nodes"] | GlyphDiagram["nodes"] = diagram.nodes;
   const positions = place(
-    diagram.nodes.map((node) => ({
+    all.map((node) => ({
       id: node.id,
-      size: isContainer(node) ? containerBox({ ...diagram, nodes: [node] }, node) : measureNode(node, diagram.kind),
+      size: isContainer(node) ? containerBox({ ...diagram, nodes: [node] }, node) : measureBox(node, diagram.kind),
     })),
     diagram.edges,
     parents,
   );
-  const placed: ErDiagram = { ...diagram, nodes: diagram.nodes.map((node) => moved(node, positions)) };
+  const placed = { ...diagram, nodes: all.map((node) => moved(node, positions)) } as D;
   if (parents.size === 0) return placed;
 
   return {
     ...placed,
-    nodes: placed.nodes.map((node) => {
+    nodes: (placed.nodes as typeof all).map((node) => {
       if (!isContainer(node)) return node;
       const { x, y } = containerBox(placed, node);
       return { ...node, x, y };
     }),
-  };
+  } as D;
 }
 
 /**

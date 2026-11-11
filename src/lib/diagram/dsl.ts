@@ -6,6 +6,12 @@ import type {
   DiagramField,
   ErDiagram,
   ErNode,
+  GlyphDiagram,
+  GlyphDiagramKind,
+  GlyphEdge,
+  GlyphNode,
+  GlyphRole,
+  ContainerRole,
   NodeRole,
   RelationEdge,
   RelationKind,
@@ -16,7 +22,18 @@ import type {
   Transition,
   Visibility,
 } from "./types.ts";
-import { err, isContainerRole, isStateDiagram, isVisibility, normalizeCardinality, ok } from "./types.ts";
+import {
+  GLYPH_RELATIONS,
+  GLYPH_ROLES,
+  err,
+  isContainerRole,
+  isGlyphDiagram,
+  isGlyphRole,
+  isStateDiagram,
+  isVisibility,
+  normalizeCardinality,
+  ok,
+} from "./types.ts";
 
 /**
  * Text projection of the diagram model (spec S5-S7).
@@ -397,7 +414,7 @@ function parseErDiagram(text: string): ErDiagram {
  * The kind named by the `diagram` header decides the family, so one header
  * selects one grammar. A missing header keeps the historical default (`er`).
  */
-function familyOf(text: string): "state" | "er" {
+function familyOf(text: string): "state" | "er" | GlyphDiagramKind {
   const lines = text.split(/\r?\n/);
 
   for (let index = 0; index < lines.length; index += 1) {
@@ -409,10 +426,181 @@ function familyOf(text: string): "state" | "er" {
 
     const kindToken = tokens[1];
     if (!kindToken) return "er";
-    return kindToken.value.toLowerCase() === "state" ? "state" : "er";
+    const named = kindToken.value.toLowerCase();
+    if (named === "state") return "state";
+    return glyphKindOf(named) ?? "er";
   }
 
   return "er";
+}
+
+/** The glyph kind a header word names, or `null` when it names another family. */
+function glyphKindOf(word: string): GlyphDiagramKind | null {
+  if (word === "use-case" || word === "usecase") return "use-case";
+  if (word === "component" || word === "communication") return word;
+  return null;
+}
+
+/** One declared node. Glyph nodes are single lines, so only containers ever stay open. */
+interface GlyphDeclaration {
+  role: GlyphRole | ContainerRole;
+  name: string;
+  line: number;
+  parent: GlyphDeclaration | null;
+}
+
+const CONTAINER_KEYWORDS: readonly string[] = ["package", "region"];
+
+/**
+ * Glyph family: one grammar for use-case, component and communication diagrams.
+ * Nodes are single lines (`actor Ana`), `package`/`region` nest as in the class
+ * family, and relations use the same arrows without cardinalities.
+ */
+function parseGlyphDiagram(text: string, kind: GlyphDiagramKind): GlyphDiagram {
+  const lines = text.split(/\r?\n/);
+  let title = "";
+  const declared: GlyphDeclaration[] = [];
+  const relations: { line: number; tokens: Token[] }[] = [];
+  let open: GlyphDeclaration | null = null;
+  const accepted = GLYPH_ROLES[kind] as readonly string[];
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = index + 1;
+    const trimmed = lines[index].trim();
+    if (trimmed === "" || trimmed.startsWith("#") || trimmed.startsWith("//")) continue;
+
+    if (trimmed === "}") {
+      if (!open) throw new DslError(line, 'unexpected "}"');
+      open = null;
+      continue;
+    }
+
+    const tokens = tokenize(trimmed, line);
+    const head = tokens[0].quoted ? "" : tokens[0].value.toLowerCase();
+    const secondIsArrow = tokens.length >= 3 && !tokens[1].quoted && ARROW_RELATIONS.has(tokens[1].value);
+
+    if (head === "diagram" && !open) {
+      const kindToken = tokens[1];
+      if (!kindToken) throw new DslError(line, 'expected a diagram kind after "diagram"');
+      title = tokens[2] ? tokens[2].value : "";
+      if (tokens.length > 3) throw new DslError(line, "unexpected text after the diagram title");
+      continue;
+    }
+
+    if (!secondIsArrow && CONTAINER_KEYWORDS.includes(head)) {
+      const role = head as ContainerRole;
+      if (open) {
+        throw new DslError(
+          line,
+          `${role} "${tokens[1]?.value ?? ""}" cannot sit inside ${open.role} "${open.name}": a container may not contain another container`,
+        );
+      }
+      if (!tokens[1]) throw new DslError(line, `expected a ${role} name after "${head}"`);
+      if (!tokens[2] || tokens[2].quoted || tokens[2].value !== "{") {
+        throw new DslError(line, `expected "{" after the ${role} name`);
+      }
+      if (tokens.length > 3) throw new DslError(line, 'unexpected text after "{"');
+      open = { role, name: tokens[1].value, line, parent: null };
+      declared.push(open);
+      continue;
+    }
+
+    if (!secondIsArrow && isGlyphRole(head)) {
+      if (!tokens[1]) throw new DslError(line, `expected a name after "${head}"`);
+      if (tokens.length > 2) throw new DslError(line, `unexpected "${tokens[2].value}" after the ${head} name`);
+      if (!accepted.includes(head)) {
+        throw new DslError(
+          line,
+          `${head} "${tokens[1].value}" is not a role of a ${kind} diagram (expected ${accepted.join(", ")})`,
+        );
+      }
+      declared.push({ role: head, name: tokens[1].value, line, parent: open });
+      continue;
+    }
+
+    if (open) {
+      throw new DslError(line, `"${trimmed}" is not allowed directly inside ${open.role} "${open.name}"`);
+    }
+    relations.push({ line, tokens });
+  }
+
+  if (open) throw new DslError(open.line, `${open.role} "${open.name}" is never closed`);
+
+  const takenIds: string[] = [];
+  const takenSlugs = new Set<string>();
+  const nodes: GlyphNode[] = [];
+  const byReference = new Map<string, GlyphNode>();
+  const nodeOf = new Map<GlyphDeclaration, GlyphNode>();
+
+  for (const declaration of declared) {
+    const name = declaration.name.trim();
+    if (name === "") throw new DslError(declaration.line, `a ${declaration.role} needs a name`);
+    const slug = slugify(name);
+    const slugKey = `${isContainerRole(declaration.role) ? "container" : "node"}:${slug}`;
+    if (takenSlugs.has(slugKey)) throw new DslError(declaration.line, `${declaration.role} "${name}" already exists`);
+    takenSlugs.add(slugKey);
+    const id = uniqueId(slug, takenIds);
+    takenIds.push(id);
+    const node: GlyphNode = {
+      id,
+      name,
+      x: 0,
+      y: 0,
+      role: declaration.role,
+      parentId: declaration.parent ? (nodeOf.get(declaration.parent)?.id ?? null) : null,
+    };
+    nodes.push(node);
+    nodeOf.set(declaration, node);
+    // Relations connect glyphs, so only glyphs are reachable by name.
+    if (isContainerRole(declaration.role)) continue;
+    byReference.set(name, node);
+    byReference.set(name.toLowerCase(), node);
+    byReference.set(slug, node);
+  }
+
+  const resolve = (token: Token, line: number): GlyphNode => {
+    const found =
+      byReference.get(token.value) ??
+      byReference.get(token.value.toLowerCase()) ??
+      byReference.get(slugify(token.value));
+    if (!found) throw new DslError(line, `unknown relation endpoint "${token.value}"`);
+    return found;
+  };
+
+  const allowed = GLYPH_RELATIONS[kind];
+  const edges: GlyphEdge[] = [];
+  const takenEdgeIds: string[] = [];
+
+  for (const { line, tokens } of relations) {
+    const arrow = tokens.length >= 3 && !tokens[1].quoted ? ARROW_RELATIONS.get(tokens[1].value) : undefined;
+    if (!arrow) {
+      if (tokens.length >= 3 && normalizeCardinality(tokens[1].value) !== null) {
+        throw new DslError(line, `a ${kind} diagram does not accept cardinalities`);
+      }
+      throw new DslError(
+        line,
+        `unknown relation arrow "${tokens[1]?.value ?? ""}" (expected ${[...ARROW_RELATIONS.entries()]
+          .filter(([, relation]) => allowed.includes(relation))
+          .map(([token]) => token)
+          .join(", ")})`,
+      );
+    }
+    if (!allowed.includes(arrow)) {
+      throw new DslError(line, `a ${kind} diagram does not accept ${arrow} ("${tokens[1].value}")`);
+    }
+
+    const source = resolve(tokens[0], line);
+    const target = resolve(tokens[2], line);
+    const rest = tokens.slice(3);
+    if (rest.length > 0 && !rest[0].quoted && rest[0].value === ":") rest.shift();
+    const label = rest.map((token) => token.value).join(" ");
+
+    const id = uniqueId(`${source.id}->${target.id}`, takenEdgeIds);
+    takenEdgeIds.push(id);
+    edges.push({ id, source: source.id, target: target.id, relation: arrow, label });
+  }
+
+  return { version: 1, kind, title, nodes, edges };
 }
 
 /** Ids the pseudo-states own, so a state may never shadow them. */
@@ -552,7 +740,10 @@ function parseStateDiagram(text: string): StateDiagram {
 /** Parses DSL text. Every failure is returned, never thrown. */
 export function parse(text: string): Result<Diagram> {
   try {
-    return ok(familyOf(text) === "state" ? parseStateDiagram(text) : parseErDiagram(text));
+    const family = familyOf(text);
+    if (family === "state") return ok(parseStateDiagram(text));
+    if (family === "er") return ok(parseErDiagram(text));
+    return ok(parseGlyphDiagram(text, family));
   } catch (error) {
     if (error instanceof DslError) return err(error.message);
     throw error;
@@ -575,7 +766,39 @@ function serializeField(field: DiagramField, kind: ClassDiagramKind): string {
 
 /** Serializes the structure of a diagram. Coordinates are never emitted. */
 export function serialize(diagram: Diagram): string {
-  return isStateDiagram(diagram) ? serializeState(diagram) : serializeEr(diagram);
+  if (isStateDiagram(diagram)) return serializeState(diagram);
+  return isGlyphDiagram(diagram) ? serializeGlyph(diagram) : serializeEr(diagram);
+}
+
+/** Glyph family: header, then containers and nodes in model order, then the relations. */
+function serializeGlyph(diagram: GlyphDiagram): string {
+  const blocks: string[] = [`diagram ${diagram.kind} "${escapeQuoted(diagram.title)}"`];
+  const containerIds = new Set(diagram.nodes.filter((node) => isContainerRole(node.role)).map((node) => node.id));
+  const nodeLine = (node: GlyphNode): string => `${node.role} ${formatBareName(node.name)}`;
+
+  const nodeLines: string[] = [];
+  for (const node of diagram.nodes) {
+    if (node.parentId !== null && containerIds.has(node.parentId)) continue;
+    if (!isContainerRole(node.role)) {
+      nodeLines.push(nodeLine(node));
+      continue;
+    }
+    nodeLines.push(`${node.role} ${formatBareName(node.name)} {`);
+    for (const child of diagram.nodes.filter((candidate) => candidate.parentId === node.id)) {
+      nodeLines.push(`  ${nodeLine(child)}`);
+    }
+    nodeLines.push("}");
+  }
+  if (nodeLines.length > 0) blocks.push(nodeLines.join("\n"));
+
+  const nameOf = (id: string): string => diagram.nodes.find((node) => node.id === id)?.name ?? id;
+  const relationLines = diagram.edges.map((edge) => {
+    const label = edge.label === "" ? "" : ` : "${escapeQuoted(edge.label)}"`;
+    return `${formatBareName(nameOf(edge.source))} ${RELATION_ARROWS[edge.relation]} ${formatBareName(nameOf(edge.target))}${label}`;
+  });
+  if (relationLines.length > 0) blocks.push(relationLines.join("\n"));
+
+  return `${blocks.join("\n\n")}\n`;
 }
 
 function serializeEr(diagram: ErDiagram): string {
