@@ -51,7 +51,9 @@ entity Pedido {
 Usuario 1..* -- 0..1 Pedido : "realiza"
 ```
 
-- `diagram <kind> "<title>"` opens the file; optional (defaults to `er`, empty title).
+- `diagram <kind> "<title>"` opens the file; optional (defaults to `er`, empty title). The kinds
+  are `er`, `uml` (also `uml-class`), `state`, `use-case`, `component` and `communication`;
+  the last three are described under their own heading below.
 - `entity <Name> { ... }` holds one field per line: `<visibility?> <name> <type> <flags...>`.
   Visibility is `+` (public, the default), `-` (private) or `#` (protected); flags are any of
   `pk`, `fk`, `uk`, `nullable`, in any order and freely combinable.
@@ -122,6 +124,66 @@ Pedido 1 -- 0..1 Envio : "se despacha"
   not significant.
 - Relation lines stay outside the blocks and can connect entities that live in different
   containers, as `Pedido` and `Envio` do above.
+
+### Use case, component and communication
+
+Three more kinds share one shape: a node with a name and a glyph, and no fields. Open the
+file with `diagram use-case "..."`, `diagram component "..."` or `diagram communication "..."`.
+
+Each node is declared on one line with its role keyword, no braces:
+
+| Kind | Keywords | Glyph |
+|------|----------|-------|
+| `use-case` | `actor`, `usecase` | stick figure, oval |
+| `component` | `component`, `interface` | box with `«component»`, circle on a stem |
+| `communication` | `object` | box with an underlined name |
+
+`region <Name> { ... }` draws the system boundary in a use case diagram; in the other two it
+groups nodes. `package` works the same way.
+
+These families take the same arrow grammar as the class diagrams, but no cardinalities, and
+they refuse composition (`*--`) and aggregation (`o--`) naming the kind. A stereotype is just
+label text: `Comprar ..> Pagar : "«include»"`.
+
+```
+diagram use-case "Tienda"
+
+actor Cliente
+usecase Comprar
+usecase Pagar
+
+region Tienda {
+  usecase Devolver
+}
+
+Cliente -- Comprar
+Comprar ..> Pagar : "«include»"
+```
+
+```
+diagram component "Pagos"
+
+component Checkout
+component Pasarela
+interface Pago
+
+Checkout ..> Pago
+Pasarela <.. Pago
+```
+
+```
+diagram communication "Pago de un pedido"
+
+object Cliente
+object Tienda
+object Pasarela
+
+Cliente --> Tienda : "1: pagar"
+Tienda --> Pasarela : "2: confirmar"
+```
+
+Switching between two of these kinds loads the sample of the kind you pick, because their
+roles do not map onto each other.
 
 ### State diagrams
 
