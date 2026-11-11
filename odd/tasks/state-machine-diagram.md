@@ -45,6 +45,8 @@ Pagado --> final
 
 **S10 — Documentation.** The README documents the state DSL with a runnable example and lists the kinds; the export section mentions that arrowheads appear on state transitions.
 
+**S11 — Copy the JSON of any kind, without switching documents.** The toolbar offers a copy action per diagram kind (`er`, `uml-class`, `state`). Each one puts the JSON of that kind's bundled sample on the clipboard, using the same `{ version: 1, diagram }` text as the file export. Copying never loads the sample: the document being edited must be untouched, and the confirmation names which kind was copied.
+
 ## Tasks
 
 | ID | Task | Specs | Route | Commit |
@@ -55,6 +57,8 @@ Pagado --> final
 | T4 | SVG renderer for states and transitions, arrowheads + tests | S7 | worker | yes |
 | T5 | Canvas state shapes + toolbar kind switch | S8 | worker | yes |
 | T6 | Sample, README, JSON round trip for `kind: "state"`, final verification | S9, S10 | worker | yes |
+| T7 | Copy-JSON buttons per kind, without touching the open document | S11 | inline | yes |
+| T8 | Fix the ER self-relation loop being clipped by `bounds` (found during T4) | S9 | inline | pending |
 
 ## Log
 
@@ -67,3 +71,9 @@ L3 (decision, parent): the union replaces the flat model instead of adding `fiel
 L4 (decision, parent): the transition label is stored verbatim in this version. Splitting `evento [guarda] / acción` into structured parts buys nothing until the app needs to validate or query it, and it would force the DSL to escape three separators.
 
 L5 (correction, parent, during T1): the first T1 brief demanded the union AND zero edits to the existing test files. Both cannot hold: the tests annotate their fixtures as `Diagram` and then read ER-only members (`.fields`, `.sourceCardinality`), and they feed those values into the ER-only helpers the union is supposed to reject. Measured with `tsc` and a temporary `types.ts`: 65 errors, 24 of them inside 6 test files. Decision: type-annotation-only edits are authorized (no assertion, expectation, test name or test case count changes); the union stays, because weakening the model to keep the annotations would give up the invariant the feature needs.
+
+L6 (user, verbatim): "deja botones para copiar json por tipo pls"
+
+L7 (decision, user): the copy buttons carry the bundled sample of each kind rather than the open document, so the three kinds can be grabbed without switching away from the diagram being edited (S11). The existing `Exportar JSON` button keeps downloading the open document.
+
+L8 (finding, T4): the exporters' self-relation loop extends past the rectangle returned by `bounds`, so an ER diagram whose entity has a self relation is clipped at the right edge of the exported image. The state renderer avoids it with a tighter loop, which fixes the symptom for states only. The ER loop is tracked as T8.
