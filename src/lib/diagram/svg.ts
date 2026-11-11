@@ -3,22 +3,37 @@ import {
   NODE_HEADER_HEIGHT,
   NODE_PADDING_X,
   NODE_ROW_HEIGHT,
+  PSEUDO_STATE_SIZE,
   ROW_FONT_SIZE,
+  STATE_NAME_FONT_SIZE,
   borderPoint,
   bounds,
   cardinalityPoints,
   estimateTextWidth,
   formatFieldLabel,
   measureNode,
+  measureState,
 } from "./measure.ts";
-import type { DiagramKind, ErDiagram, ErNode, Rect, RelationEdge } from "./types.ts";
+import { isStateDiagram } from "./types.ts";
+import type {
+  Diagram,
+  DiagramKind,
+  ErDiagram,
+  ErNode,
+  Rect,
+  RelationEdge,
+  Size,
+  StateDiagram,
+  StateNode,
+  Transition,
+} from "./types.ts";
 
 /**
- * Image exporter (spec S9). A pure `Diagram -> SVG` projection: no DOM, no
+ * Image exporter (specs S7, S9). A pure `Diagram -> SVG` projection: no DOM, no
  * randomness, no timestamps, so the same diagram always yields the same bytes.
  *
  * Every size comes from `measure.ts`, so the canvas and the exported image
- * cannot drift apart.
+ * cannot drift apart. One entry point, one dispatch on `kind`, two renderers.
  */
 
 export type SvgTheme = "dark" | "light";
@@ -40,6 +55,26 @@ const FONT_MONO = "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consol
 
 const TITLE_HEIGHT = 40;
 const TITLE_FONT_SIZE = 20;
+
+/** Corner radius shared by an entity box and a state box. */
+const BOX_RADIUS = 8;
+
+/**
+ * Id of the single arrowhead marker of a state document. A constant, not a hash
+ * of the diagram: a marker is a per-document definition, and the value has to
+ * survive a re-export unchanged.
+ */
+const ARROW_MARKER_ID = "state-transition-arrow";
+
+/**
+ * How far a self transition swings out past the right edge of its state. Kept
+ * under the default padding so the loop never leaves the document `bounds`.
+ */
+const LOOP_REACH = 40;
+/** How far above the top edge the loop turns back, like the self relation loop. */
+const LOOP_RISE = 30;
+/** Distance between the loop label and the top edge of its state. */
+const LOOP_LABEL_GAP = 36;
 
 interface Palette {
   background: string;
@@ -89,7 +124,20 @@ function round(value: number): number {
   return Math.round(value * 100) / 100;
 }
 
-export function toSvg(diagram: ErDiagram, options: SvgOptions = {}): string {
+/** Everything the two families share: canvas frame, palette and title slot. */
+interface Frame {
+  width: number;
+  height: number;
+  padding: number;
+  titleHeight: number;
+  palette: Palette;
+  background: string;
+  fontFamily: string;
+  /** Document extent, from `bounds`; the only source of the drawing origin. */
+  box: Rect;
+}
+
+function createFrame(diagram: Diagram, options: SvgOptions): Frame {
   const padding = options.padding ?? DEFAULT_PADDING;
   const palette = PALETTES[options.theme ?? "dark"];
   const background = options.background ?? palette.background;
@@ -100,54 +148,90 @@ export function toSvg(diagram: ErDiagram, options: SvgOptions = {}): string {
   const width = Math.max(1, Math.ceil(box.width));
   const height = Math.max(1, Math.ceil(box.height + titleHeight));
 
-  const boxOf = (node: ErNode): Rect => {
-    const size = measureNode(node, diagram.kind);
-    return {
-      x: round(node.x - box.x),
-      y: round(node.y - box.y + titleHeight),
-      width: size.width,
-      height: size.height,
-    };
+  return { width, height, padding, titleHeight, palette, background, fontFamily, box };
+}
+
+/** Model coordinates to document coordinates, for one already-measured node. */
+function boxOf(node: { x: number; y: number }, size: Size, frame: Frame): Rect {
+  return {
+    x: round(node.x - frame.box.x),
+    y: round(node.y - frame.box.y + frame.titleHeight),
+    width: size.width,
+    height: size.height,
   };
+}
 
-  const boxes = new Map<string, Rect>();
-  for (const node of diagram.nodes) boxes.set(node.id, boxOf(node));
+/** Where a label goes: the backdrop rect and the text share one anchor point. */
+interface LabelPlacement {
+  /** Horizontal anchor of the text, and the rect edge it is padded from. */
+  x: number;
+  /** Vertical centre of both the backdrop and the text. */
+  y: number;
+  /** `middle` centres on `x`; `start` begins at `x` plus half the padding. */
+  anchor: "middle" | "start";
+  /** Horizontal padding inside the backdrop rect. */
+  padX: number;
+}
 
-  const parts: string[] = [];
-  parts.push(
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" font-family="${escapeXml(fontFamily)}">`,
-  );
-  parts.push(
-    `<style>text{dominant-baseline:middle} .n{font-size:${NAME_FONT_SIZE}px;font-weight:600;fill:${palette.text}} .f{font-size:${ROW_FONT_SIZE}px;fill:${palette.muted}} .c{font-size:11px;fill:${palette.edge}} .l{font-size:12px;fill:${palette.label}} .t{font-size:${TITLE_FONT_SIZE}px;font-weight:700;fill:${palette.text}}</style>`,
-  );
-  parts.push(`<rect x="0" y="0" width="${width}" height="${height}" fill="${escapeXml(background)}"/>`);
+/** A label with the backdrop that keeps the line from running through it. */
+function renderLabel(text: string, at: LabelPlacement, frame: Frame): string {
+  const width = Math.ceil(estimateTextWidth(text, 12)) + at.padX;
+  const rectX = at.anchor === "middle" ? round(at.x - width / 2) : at.x;
+  const textX = at.anchor === "middle" ? at.x : at.x + at.padX / 2;
+  const anchor = at.anchor === "middle" ? ` text-anchor="middle"` : "";
+  return [
+    `<rect x="${rectX}" y="${round(at.y - 9)}" width="${width}" height="18" fill="${escapeXml(frame.background)}"/>`,
+    `<text class="l" x="${textX}" y="${at.y}"${anchor}>${escapeXml(text)}</text>`,
+  ].join("");
+}
 
-  if (titleHeight > 0) {
+export function toSvg(diagram: Diagram, options: SvgOptions = {}): string {
+  const frame = createFrame(diagram, options);
+  const parts: string[] = [
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${frame.width}" height="${frame.height}" viewBox="0 0 ${frame.width} ${frame.height}" font-family="${escapeXml(frame.fontFamily)}">`,
+    `<style>text{dominant-baseline:middle} .n{font-size:${NAME_FONT_SIZE}px;font-weight:600;fill:${frame.palette.text}} .f{font-size:${ROW_FONT_SIZE}px;fill:${frame.palette.muted}} .c{font-size:11px;fill:${frame.palette.edge}} .l{font-size:12px;fill:${frame.palette.label}} .t{font-size:${TITLE_FONT_SIZE}px;font-weight:700;fill:${frame.palette.text}}</style>`,
+    `<rect x="0" y="0" width="${frame.width}" height="${frame.height}" fill="${escapeXml(frame.background)}"/>`,
+  ];
+
+  if (frame.titleHeight > 0) {
     parts.push(
-      `<text class="t" x="${padding}" y="${padding + TITLE_HEIGHT / 2}">${escapeXml(diagram.title)}</text>`,
+      `<text class="t" x="${frame.padding}" y="${frame.padding + TITLE_HEIGHT / 2}">${escapeXml(diagram.title)}</text>`,
     );
   }
 
+  parts.push(...(isStateDiagram(diagram) ? stateBody(diagram, frame) : classBody(diagram, frame)));
+  parts.push("</svg>");
+  return parts.join("");
+}
+
+function classBody(diagram: ErDiagram, frame: Frame): string[] {
+  const boxes = new Map<string, Rect>();
+  for (const node of diagram.nodes) {
+    boxes.set(node.id, boxOf(node, measureNode(node, diagram.kind), frame));
+  }
+
+  const parts: string[] = [];
+
   // Relations go under the entities so a box always covers its own edge ends.
   for (const edge of diagram.edges) {
-    parts.push(renderEdge(edge, boxes, palette, background));
+    parts.push(renderEdge(edge, boxes, frame));
   }
 
   for (const node of diagram.nodes) {
     const entityBox = boxes.get(node.id);
     if (!entityBox) continue;
-    parts.push(renderNode(node, entityBox, diagram.kind, palette));
+    parts.push(renderNode(node, entityBox, diagram.kind, frame.palette));
   }
 
-  parts.push("</svg>");
-  return parts.join("");
+  return parts;
 }
 
-function renderEdge(edge: RelationEdge, boxes: Map<string, Rect>, palette: Palette, background: string): string {
+function renderEdge(edge: RelationEdge, boxes: Map<string, Rect>, frame: Frame): string {
   const source = boxes.get(edge.source);
   const target = boxes.get(edge.target);
   if (!source || !target) return "";
 
+  const palette = frame.palette;
   const parts: string[] = [];
 
   if (edge.source === edge.target) {
@@ -161,14 +245,9 @@ function renderEdge(edge: RelationEdge, boxes: Map<string, Rect>, palette: Palet
       `<path d="M ${startX} ${startY} C ${controlX} ${startY} ${controlX} ${round(endY - 40)} ${endX} ${endY}" fill="none" stroke="${palette.edge}" stroke-width="1.5"/>`,
     );
     if (edge.label !== "") {
-      const text = escapeXml(edge.label);
-      const labelWidth = Math.ceil(estimateTextWidth(edge.label, 12)) + 8;
       const labelX = round(controlX + 6);
       const labelY = round(startY - 20);
-      parts.push(
-        `<rect x="${labelX}" y="${round(labelY - 9)}" width="${labelWidth}" height="18" fill="${escapeXml(background)}"/>`,
-      );
-      parts.push(`<text class="l" x="${labelX + 4}" y="${labelY}">${text}</text>`);
+      parts.push(renderLabel(edge.label, { x: labelX, y: labelY, anchor: "start", padX: 8 }, frame));
     }
     return parts.join("");
   }
@@ -197,13 +276,7 @@ function renderEdge(edge: RelationEdge, boxes: Map<string, Rect>, palette: Palet
   if (edge.label !== "") {
     const midX = round((from.x + to.x) / 2);
     const midY = round((from.y + to.y) / 2 - 10);
-    const labelWidth = Math.ceil(estimateTextWidth(edge.label, 12)) + 10;
-    parts.push(
-      `<rect x="${round(midX - labelWidth / 2)}" y="${round(midY - 9)}" width="${labelWidth}" height="18" fill="${escapeXml(background)}"/>`,
-    );
-    parts.push(
-      `<text class="l" x="${midX}" y="${midY}" text-anchor="middle">${escapeXml(edge.label)}</text>`,
-    );
+    parts.push(renderLabel(edge.label, { x: midX, y: midY, anchor: "middle", padX: 10 }, frame));
   }
 
   return parts.join("");
@@ -248,6 +321,116 @@ function renderNode(node: ErNode, box: Rect, kind: DiagramKind, palette: Palette
   parts.push(
     `<rect x="${box.x}" y="${box.y}" width="${box.width}" height="${box.height}" rx="8" fill="none" stroke="${palette.stroke}" stroke-width="1.5"/>`,
   );
+
+  return parts.join("");
+}
+
+/**
+ * One arrowhead definition per document, referenced by every transition. The
+ * tip sits on the border point the line was clipped to, so the arrow points at
+ * the target instead of stopping short of it.
+ */
+function arrowMarker(palette: Palette): string {
+  return `<defs><marker id="${ARROW_MARKER_ID}" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="10" markerHeight="10" markerUnits="userSpaceOnUse" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="${palette.edge}"/></marker></defs>`;
+}
+
+function stateBody(diagram: StateDiagram, frame: Frame): string[] {
+  const boxes = new Map<string, Rect>();
+  for (const node of diagram.nodes) {
+    boxes.set(node.id, boxOf(node, measureState(node), frame));
+  }
+
+  const parts: string[] = [arrowMarker(frame.palette)];
+
+  // Transitions go under the states so a state always covers its own edge ends.
+  for (const edge of diagram.edges) {
+    parts.push(renderTransition(edge, boxes, frame));
+  }
+
+  for (const node of diagram.nodes) {
+    const stateBox = boxes.get(node.id);
+    if (!stateBox) continue;
+    parts.push(renderState(node, stateBox, frame.palette));
+  }
+
+  return parts;
+}
+
+function renderState(node: StateNode, box: Rect, palette: Palette): string {
+  const centerX = round(box.x + box.width / 2);
+  const centerY = round(box.y + box.height / 2);
+
+  if (node.role === "initial") {
+    // A filled circle that fills the whole pseudo-state square.
+    return `<circle cx="${centerX}" cy="${centerY}" r="${round(box.width / 2)}" fill="${palette.text}"/>`;
+  }
+
+  if (node.role === "final") {
+    // A ring with a filled inner circle inside the same square.
+    return [
+      `<circle cx="${centerX}" cy="${centerY}" r="${round(box.width / 2)}" fill="none" stroke="${palette.text}" stroke-width="1.5"/>`,
+      `<circle cx="${centerX}" cy="${centerY}" r="${round(PSEUDO_STATE_SIZE / 4)}" fill="${palette.text}"/>`,
+    ].join("");
+  }
+
+  return [
+    `<rect x="${box.x}" y="${box.y}" width="${box.width}" height="${box.height}" rx="${BOX_RADIUS}" fill="${palette.header}" stroke="${palette.stroke}" stroke-width="1.5"/>`,
+    `<text class="n" x="${centerX}" y="${centerY}" text-anchor="middle" font-size="${STATE_NAME_FONT_SIZE}">${escapeXml(node.name)}</text>`,
+  ].join("");
+}
+
+function renderTransition(edge: Transition, boxes: Map<string, Rect>, frame: Frame): string {
+  const source = boxes.get(edge.source);
+  const target = boxes.get(edge.target);
+  if (!source || !target) return "";
+
+  const arrow = `marker-end="url(#${ARROW_MARKER_ID})"`;
+  const parts: string[] = [];
+
+  if (edge.source === edge.target) {
+    // Self transition: a loop leaving the right edge and rejoining the top edge,
+    // with the arrowhead on the end that comes back into the state.
+    const start = borderPoint(source, source.x + source.width * 2, source.y + source.height / 2);
+    const end = borderPoint(source, source.x + source.width / 2, source.y - source.height * 2);
+    const startX = round(start.x);
+    const startY = round(start.y);
+    const endX = round(end.x);
+    const endY = round(end.y);
+    const controlX = round(startX + LOOP_REACH);
+    parts.push(
+      `<path d="M ${startX} ${startY} C ${controlX} ${startY} ${controlX} ${round(endY - LOOP_RISE)} ${endX} ${endY}" fill="none" stroke="${frame.palette.edge}" stroke-width="1.5" ${arrow}/>`,
+    );
+    if (edge.label !== "") {
+      // Above the loop and centred on the box, the only free side that is
+      // inside the document extent for a state pulled to any edge of it.
+      parts.push(
+        renderLabel(
+          edge.label,
+          {
+            x: round(source.x + source.width / 2),
+            y: round(source.y - LOOP_LABEL_GAP),
+            anchor: "middle",
+            padX: 10,
+          },
+          frame,
+        ),
+      );
+    }
+    return parts.join("");
+  }
+
+  const from = borderPoint(source, target.x + target.width / 2, target.y + target.height / 2);
+  const to = borderPoint(target, source.x + source.width / 2, source.y + source.height / 2);
+
+  parts.push(
+    `<line x1="${round(from.x)}" y1="${round(from.y)}" x2="${round(to.x)}" y2="${round(to.y)}" stroke="${frame.palette.edge}" stroke-width="1.5" ${arrow}/>`,
+  );
+
+  if (edge.label !== "") {
+    const midX = round((from.x + to.x) / 2);
+    const midY = round((from.y + to.y) / 2 - 10);
+    parts.push(renderLabel(edge.label, { x: midX, y: midY, anchor: "middle", padX: 10 }, frame));
+  }
 
   return parts.join("");
 }
