@@ -1,6 +1,17 @@
-import { validate } from "./model.ts";
-import type { Diagram, DiagramField, ErDiagram, ErNode, RelationEdge, Result } from "./types.ts";
-import { err, isClassDiagramKind, isDiagramKind, isVisibility, normalizeCardinality, ok } from "./types.ts";
+import { slugify, validate } from "./model.ts";
+import type {
+  Diagram,
+  DiagramField,
+  ErDiagram,
+  ErNode,
+  RelationEdge,
+  Result,
+  StateDiagram,
+  StateNode,
+  StateRole,
+  Transition,
+} from "./types.ts";
+import { err, isDiagramKind, isVisibility, normalizeCardinality, ok } from "./types.ts";
 
 /**
  * Persistence (spec S10): the autosaved local copy and the `.json` exchange
@@ -82,13 +93,25 @@ function readEdge(value: unknown): Result<RelationEdge> {
 }
 
 /** Deep runtime validation of anything claiming to be a diagram. */
-export function readDiagram(value: unknown): Result<ErDiagram> {
+export function readDiagram(value: unknown): Result<Diagram> {
   if (!isRecord(value)) return err("The diagram is not an object");
   const { kind, title, nodes, edges, version } = value;
   if (version !== undefined && version !== FILE_VERSION) return err(`Unsupported diagram version ${String(version)}`);
   if (typeof kind !== "string" || !isDiagramKind(kind)) return err("The diagram has an unknown kind");
-  // The state family is modelled in `types.ts` but its reader lands with T6.
-  if (!isClassDiagramKind(kind)) return err("State diagrams are not supported yet");
+  if (typeof title !== "string") return err("The diagram title is missing");
+  if (!Array.isArray(nodes) || !Array.isArray(edges)) {
+    return err(kind === "state" ? "The diagram has no states or transitions" : "The diagram has no entities or relations");
+  }
+
+  return kind === "state"
+    ? readStateDiagram(title, nodes, edges)
+    : readErDiagram({ version: FILE_VERSION, kind, title, nodes, edges });
+}
+
+function readErDiagram(value: unknown): Result<ErDiagram> {
+  if (!isRecord(value)) return err("The diagram is not an object");
+  const { kind, title, nodes, edges } = value;
+  if (kind !== "er" && kind !== "uml-class") return err("The diagram has an unknown kind");
   if (typeof title !== "string") return err("The diagram title is missing");
   if (!Array.isArray(nodes) || !Array.isArray(edges)) return err("The diagram has no entities or relations");
 
@@ -109,7 +132,86 @@ export function readDiagram(value: unknown): Result<ErDiagram> {
   return validate({ version: FILE_VERSION, kind, title, nodes: parsedNodes, edges: parsedEdges });
 }
 
-export function fromFile(text: string): Result<ErDiagram> {
+const STATE_ROLES: readonly StateRole[] = ["state", "initial", "final"];
+
+function isStateRole(value: string): value is StateRole {
+  return (STATE_ROLES as readonly string[]).includes(value);
+}
+
+function readStateNode(value: unknown): Result<StateNode> {
+  if (!isRecord(value)) return err("A state is not an object");
+  const { id, name, x, y, role } = value;
+  if (typeof id !== "string" || typeof name !== "string") return err("A state is missing its id or name");
+  if (typeof role !== "string" || !isStateRole(role)) {
+    return err(`The state "${id}" has an unknown role "${String(role)}" (expected state, initial or final)`);
+  }
+  if (typeof x !== "number" || !Number.isFinite(x)) return err(`The state "${id}" has an invalid x position`);
+  if (typeof y !== "number" || !Number.isFinite(y)) return err(`The state "${id}" has an invalid y position`);
+  return ok({ id, name, x, y, role });
+}
+
+function readTransition(value: unknown): Result<Transition> {
+  if (!isRecord(value)) return err("A transition is not an object");
+  const { id, source, target, label } = value;
+  if (typeof id !== "string" || typeof source !== "string" || typeof target !== "string") {
+    return err("A transition is missing its id, source or target");
+  }
+  if (typeof label !== "string") return err(`The transition "${id}" has no label`);
+  return ok({ id, source, target, label });
+}
+
+/**
+ * Structural rules of a state machine, mirroring `model.validate` for the class
+ * families: one initial state, unique ids and names, no dangling transition.
+ */
+function validateStateDiagram(diagram: StateDiagram): Result<StateDiagram> {
+  const ids = new Set<string>();
+  const names = new Set<string>();
+  let initial = 0;
+
+  for (const node of diagram.nodes) {
+    if (ids.has(node.id)) return err(`Duplicated state id "${node.id}"`);
+    ids.add(node.id);
+
+    if (node.role === "initial") {
+      initial += 1;
+      if (initial > 1) return err("Only one initial state is allowed");
+    }
+
+    if (node.role !== "state") continue;
+    if (!node.name.trim()) return err(`The state "${node.id}" has an empty name`);
+    const slug = slugify(node.name);
+    if (names.has(slug)) return err(`The state "${node.name}" is duplicated`);
+    names.add(slug);
+  }
+
+  for (const edge of diagram.edges) {
+    if (!ids.has(edge.source)) return err(`The transition "${edge.id}" starts at unknown state "${edge.source}"`);
+    if (!ids.has(edge.target)) return err(`The transition "${edge.id}" ends at unknown state "${edge.target}"`);
+  }
+
+  return ok(diagram);
+}
+
+function readStateDiagram(title: string, nodes: unknown[], edges: unknown[]): Result<StateDiagram> {
+  const parsedNodes: StateNode[] = [];
+  for (const node of nodes) {
+    const parsed = readStateNode(node);
+    if (!parsed.ok) return err(parsed.error);
+    parsedNodes.push(parsed.value);
+  }
+
+  const parsedEdges: Transition[] = [];
+  for (const edge of edges) {
+    const parsed = readTransition(edge);
+    if (!parsed.ok) return err(parsed.error);
+    parsedEdges.push(parsed.value);
+  }
+
+  return validateStateDiagram({ version: FILE_VERSION, kind: "state", title, nodes: parsedNodes, edges: parsedEdges });
+}
+
+export function fromFile(text: string): Result<Diagram> {
   let payload: unknown;
   try {
     payload = JSON.parse(text);
@@ -125,7 +227,7 @@ export function fromFile(text: string): Result<ErDiagram> {
 }
 
 /** Restores the autosaved diagram, or `null` when absent, unreadable or corrupt. */
-export function readStorage(store: KeyValueStore | null): ErDiagram | null {
+export function readStorage(store: KeyValueStore | null): Diagram | null {
   if (!store) return null;
   let raw: string | null = null;
   try {

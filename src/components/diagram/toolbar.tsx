@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { SAMPLES } from "@/lib/diagram/samples";
-import type { ClassDiagramKind, Diagram } from "@/lib/diagram/types";
+import type { Diagram, DiagramKind } from "@/lib/diagram/types";
 
 export type ExportFormat = "svg" | "png1" | "png2" | "png3" | "json";
 
@@ -28,8 +28,8 @@ export interface ToolbarProps {
   onUndo: () => void;
   onRedo: () => void;
   onTitle: (title: string) => void;
-  onKind: (kind: ClassDiagramKind) => void;
-  onAddEntity: () => void;
+  onKind: (kind: DiagramKind) => void;
+  onAddElement: () => void;
   onLayout: () => void;
   onLoadSample: (id: string) => void;
   onImportFile: (file: File) => void;
@@ -52,28 +52,28 @@ export function Toolbar(props: ToolbarProps) {
       />
 
       <div className="flex overflow-hidden rounded-md border border-input">
-        <Button
-          size="xs"
-          variant={diagram.kind === "er" ? "default" : "ghost"}
-          aria-pressed={diagram.kind === "er"}
-          onClick={() => props.onKind("er")}
-          className="rounded-none"
-        >
-          ER
-        </Button>
-        <Button
-          size="xs"
-          variant={diagram.kind === "uml-class" ? "default" : "ghost"}
-          aria-pressed={diagram.kind === "uml-class"}
-          onClick={() => props.onKind("uml-class")}
-          className="rounded-none"
-        >
-          UML
-        </Button>
+        {(
+          [
+            ["er", "ER"],
+            ["uml-class", "UML"],
+            ["state", "Estado"],
+          ] as const
+        ).map(([kind, text]) => (
+          <Button
+            key={kind}
+            size="xs"
+            variant={diagram.kind === kind ? "default" : "ghost"}
+            aria-pressed={diagram.kind === kind}
+            onClick={() => props.onKind(kind)}
+            className="rounded-none"
+          >
+            {text}
+          </Button>
+        ))}
       </div>
 
-      <Button size="xs" variant="outline" onClick={props.onAddEntity}>
-        + Entidad
+      <Button size="xs" variant="outline" onClick={props.onAddElement}>
+        {diagram.kind === "state" ? "+ Estado" : "+ Entidad"}
       </Button>
       <Button size="xs" variant="outline" onClick={props.onLayout}>
         Acomodar

@@ -11,6 +11,7 @@ import {
   type KeyValueStore,
 } from "./persistence.ts";
 import type { Diagram } from "./types.ts";
+import { isStateDiagram } from "./types.ts";
 
 const good = (): Diagram => ({
   version: 1,
@@ -35,6 +36,24 @@ const good = (): Diagram => ({
       targetCardinality: "0..*",
       label: "realiza",
     },
+  ],
+});
+
+const stateGood = (): Diagram => ({
+  version: 1,
+  kind: "state",
+  title: "Ciclo del pedido",
+  nodes: [
+    { id: "initial", name: "", x: 140, y: 40, role: "initial" },
+    { id: "nuevo", name: "Nuevo", x: 100, y: 140, role: "state" },
+    { id: "pagado", name: "Pagado", x: 220, y: 240, role: "state" },
+    { id: "final", name: "", x: 140, y: 360, role: "final" },
+  ],
+  edges: [
+    { id: "initial->nuevo", source: "initial", target: "nuevo", label: "" },
+    { id: "nuevo->pagado", source: "nuevo", target: "pagado", label: "pagar [monto > 0] / emitir recibo" },
+    { id: "pagado->pagado", source: "pagado", target: "pagado", label: "reintentar" },
+    { id: "pagado->final", source: "pagado", target: "final", label: "" },
   ],
 });
 
@@ -102,6 +121,103 @@ test("structurally invalid diagrams are rejected", () => {
   }
 });
 
+test("a state file round trips through toFile and fromFile unchanged", () => {
+  const diagram = stateGood();
+  const restored = fromFile(toFile(diagram));
+  assert.equal(restored.ok, true);
+  if (!restored.ok) return;
+  assert.deepEqual(restored.value, diagram);
+});
+
+function brokenState(mutate: (diagram: Record<string, unknown>) => void): string {
+  const value = JSON.parse(toFile(stateGood())) as { diagram: Record<string, unknown> };
+  mutate(value.diagram);
+  return JSON.stringify(value);
+}
+
+function stateNodes(diagram: Record<string, unknown>): Record<string, unknown>[] {
+  return diagram.nodes as Record<string, unknown>[];
+}
+
+function stateEdges(diagram: Record<string, unknown>): Record<string, unknown>[] {
+  return diagram.edges as Record<string, unknown>[];
+}
+
+test("a state file with an unknown role is rejected", () => {
+  const text = brokenState((diagram) => {
+    stateNodes(diagram)[1].role = "esperando";
+  });
+  const result = fromFile(text);
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.match(result.error, /esperando/);
+});
+
+test("a state file with a transition to a missing state is rejected", () => {
+  const text = brokenState((diagram) => {
+    stateEdges(diagram)[1].target = "fantasma";
+  });
+  const result = fromFile(text);
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.match(result.error, /fantasma/);
+});
+
+test("a state file with a duplicated or non numeric position is rejected", () => {
+  const duplicated = brokenState((diagram) => {
+    stateNodes(diagram)[2].id = "nuevo";
+  });
+  const duplicatedResult = fromFile(duplicated);
+  assert.equal(duplicatedResult.ok, false);
+  if (!duplicatedResult.ok) assert.match(duplicatedResult.error, /nuevo/);
+
+  const nonNumeric = brokenState((diagram) => {
+    stateNodes(diagram)[1].x = "100";
+  });
+  const nonNumericResult = fromFile(nonNumeric);
+  assert.equal(nonNumericResult.ok, false);
+  if (!nonNumericResult.ok) assert.match(nonNumericResult.error, /nuevo/);
+
+  const twoInitial = brokenState((diagram) => {
+    stateNodes(diagram)[3].role = "initial";
+  });
+  const twoInitialResult = fromFile(twoInitial);
+  assert.equal(twoInitialResult.ok, false);
+  if (!twoInitialResult.ok) assert.match(twoInitialResult.error, /initial/i);
+
+  const namelessState = brokenState((diagram) => {
+    stateNodes(diagram)[1].name = "  ";
+  });
+  const namelessResult = fromFile(namelessState);
+  assert.equal(namelessResult.ok, false);
+  if (!namelessResult.ok) assert.match(namelessResult.error, /name/);
+});
+
+test("an old er file still imports", () => {
+  const legacy = JSON.stringify({
+    version: FILE_VERSION,
+    diagram: {
+      version: FILE_VERSION,
+      kind: "er",
+      title: "Viejo",
+      nodes: [{ id: "cliente", name: "Cliente", x: 12, y: 24, fields: [] }],
+      edges: [],
+    },
+  });
+  const result = fromFile(legacy);
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.value.kind, "er");
+  assert.equal(result.value.title, "Viejo");
+  assert.equal(result.value.nodes.length, 1);
+});
+
+test("a state diagram is autosaved and restored", () => {
+  const store = memoryStore();
+  assert.equal(writeStorage(store, stateGood()), true);
+  assert.deepEqual(readStorage(store), stateGood());
+});
+
 test("the UML * shorthand is read as 0..* instead of rejecting the file", () => {
   const value = JSON.parse(toFile(good())) as { diagram: Record<string, unknown> };
   const edges = value.diagram.edges as Record<string, unknown>[];
@@ -111,6 +227,8 @@ test("the UML * shorthand is read as 0..* instead of rejecting the file", () => 
   const result = fromFile(JSON.stringify(value));
   assert.equal(result.ok, true);
   if (!result.ok) return;
+  assert.equal(isStateDiagram(result.value), false);
+  if (isStateDiagram(result.value)) return;
   assert.equal(result.value.edges[0].sourceCardinality, "0..*");
   assert.equal(result.value.edges[0].targetCardinality, "0..*");
 });

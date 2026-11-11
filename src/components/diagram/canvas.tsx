@@ -7,22 +7,53 @@ import {
   Controls,
   ReactFlow,
   applyNodeChanges,
-  type Edge,
-  type Node,
   type NodeChange,
   type NodeTypes,
   type EdgeTypes,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
-import { measureNode } from "@/lib/diagram/measure";
-import type { ErDiagram } from "@/lib/diagram/types";
-import { EntityNode, RelationEdge, type EntityNodeType, type RelationEdgeType } from "./shapes";
+import { measureNode, measureState } from "@/lib/diagram/measure";
+import type { Diagram } from "@/lib/diagram/types";
+import { isStateDiagram } from "@/lib/diagram/types";
+import {
+  EntityNode,
+  RelationEdge,
+  StateShape,
+  TransitionEdge,
+  type EntityNodeType,
+  type RelationEdgeType,
+  type StateNodeType,
+  type TransitionEdgeType,
+} from "./shapes";
 
-const nodeTypes: NodeTypes = { entity: EntityNode };
-const edgeTypes: EdgeTypes = { relation: RelationEdge };
+/**
+ * The canvas renders any family (spec S8). Sizes come from `measure.ts` for both,
+ * and the class rendering is untouched: the state family gets its own shape and
+ * edge components instead of a flag inside the class ones.
+ */
 
-function toNodes(diagram: ErDiagram, selectedId: string | null): EntityNodeType[] {
+type CanvasNode = EntityNodeType | StateNodeType;
+type CanvasEdge = RelationEdgeType | TransitionEdgeType;
+
+const nodeTypes: NodeTypes = { entity: EntityNode, state: StateShape };
+const edgeTypes: EdgeTypes = { relation: RelationEdge, transition: TransitionEdge };
+
+function toNodes(diagram: Diagram, selectedId: string | null): CanvasNode[] {
+  if (isStateDiagram(diagram)) {
+    return diagram.nodes.map((node) => {
+      const size = measureState(node);
+      return {
+        id: node.id,
+        type: "state",
+        position: { x: node.x, y: node.y },
+        data: { node },
+        selected: node.id === selectedId,
+        style: { width: size.width, height: size.height },
+      };
+    });
+  }
+
   return diagram.nodes.map((node) => {
     const size = measureNode(node, diagram.kind);
     return {
@@ -36,7 +67,18 @@ function toNodes(diagram: ErDiagram, selectedId: string | null): EntityNodeType[
   });
 }
 
-function toEdges(diagram: ErDiagram, selectedId: string | null): RelationEdgeType[] {
+function toEdges(diagram: Diagram, selectedId: string | null): CanvasEdge[] {
+  if (isStateDiagram(diagram)) {
+    return diagram.edges.map((edge) => ({
+      id: edge.id,
+      type: "transition",
+      source: edge.source,
+      target: edge.target,
+      data: { edge },
+      selected: edge.id === selectedId,
+    }));
+  }
+
   return diagram.edges.map((edge) => ({
     id: edge.id,
     type: "relation",
@@ -48,7 +90,7 @@ function toEdges(diagram: ErDiagram, selectedId: string | null): RelationEdgeTyp
 }
 
 export interface CanvasProps {
-  diagram: ErDiagram;
+  diagram: Diagram;
   selectedId: string | null;
   onSelect: (id: string | null) => void;
   onMove: (id: string, x: number, y: number) => void;
@@ -56,7 +98,7 @@ export interface CanvasProps {
 }
 
 export function DiagramCanvas({ diagram, selectedId, onSelect, onMove, onConnect }: CanvasProps) {
-  const [nodes, setNodes] = useState<EntityNodeType[]>(() => toNodes(diagram, selectedId));
+  const [nodes, setNodes] = useState<CanvasNode[]>(() => toNodes(diagram, selectedId));
 
   const edges = useMemo(() => toEdges(diagram, selectedId), [diagram, selectedId]);
 
@@ -66,14 +108,14 @@ export function DiagramCanvas({ diagram, selectedId, onSelect, onMove, onConnect
     setNodes(toNodes(diagram, selectedId));
   }, [diagram, selectedId]);
 
-  const handleNodesChange = useCallback((changes: NodeChange<EntityNodeType>[]) => {
+  const handleNodesChange = useCallback((changes: NodeChange<CanvasNode>[]) => {
     // Selection and removal are model decisions, not canvas decisions.
     const visual = changes.filter((change) => change.type === "position" || change.type === "dimensions");
     setNodes((current) => applyNodeChanges(visual, current));
   }, []);
 
   return (
-    <ReactFlow<EntityNodeType, RelationEdgeType>
+    <ReactFlow<CanvasNode, CanvasEdge>
       nodes={nodes}
       edges={edges}
       nodeTypes={nodeTypes}

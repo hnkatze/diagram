@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
-import type { Cardinality, DiagramField, ErDiagram, Visibility } from "@/lib/diagram/types";
+import type { Cardinality, DiagramField, ErDiagram, StateDiagram, Visibility } from "@/lib/diagram/types";
 import { CARDINALITIES, VISIBILITIES } from "@/lib/diagram/types";
 
 export interface InspectorProps {
@@ -59,6 +59,100 @@ function Select({
         ))}
       </select>
     </label>
+  );
+}
+
+export interface StateInspectorProps {
+  diagram: StateDiagram;
+  selectedId: string | null;
+  onRenameState: (id: string, name: string) => void;
+  onDeleteState: (id: string) => void;
+  onUpdateTransition: (id: string, label: string) => void;
+  onDeleteTransition: (id: string) => void;
+}
+
+const ROLE_LABELS: Record<string, string> = {
+  state: "Estado",
+  initial: "Estado inicial",
+  final: "Estado final",
+};
+
+/** Inspector of the state family: one state or one transition at a time. */
+export function StateInspector(props: StateInspectorProps) {
+  const { diagram, selectedId } = props;
+  const node = diagram.nodes.find((candidate) => candidate.id === selectedId);
+  const edge = diagram.edges.find((candidate) => candidate.id === selectedId);
+
+  if (!node && !edge) {
+    return (
+      <div className="flex h-full flex-col gap-2 p-3">
+        <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Inspector</h2>
+        <p className="text-xs leading-5 text-muted-foreground">
+          Elegí un estado o una transición en el canvas para editarla. Arrastrá desde el borde de un estado hasta otro
+          para crear una transición.
+        </p>
+      </div>
+    );
+  }
+
+  if (edge) {
+    const sourceName = diagram.nodes.find((candidate) => candidate.id === edge.source);
+    const targetName = diagram.nodes.find((candidate) => candidate.id === edge.target);
+    const nameOf = (state: typeof sourceName, fallback: string): string =>
+      !state ? fallback : state.role === "state" ? state.name : ROLE_LABELS[state.role];
+    return (
+      <div className="flex h-full flex-col gap-3 overflow-y-auto p-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Transición</h2>
+          <Button variant="destructive" size="xs" onClick={() => props.onDeleteTransition(edge.id)}>
+            Eliminar
+          </Button>
+        </div>
+        <p className="font-mono text-[11px] text-muted-foreground">
+          {nameOf(sourceName, edge.source)} → {nameOf(targetName, edge.target)}
+        </p>
+        <label className="flex flex-col gap-1">
+          <span className="text-[11px] font-medium text-muted-foreground">Etiqueta</span>
+          <Input
+            value={edge.label}
+            onChange={(event) => props.onUpdateTransition(edge.id, event.target.value)}
+            placeholder="evento [guarda] / acción"
+            className="h-8 text-xs"
+          />
+          <span className="text-[11px] text-muted-foreground">Se guarda tal cual, sin separar evento, guarda y acción.</span>
+        </label>
+      </div>
+    );
+  }
+
+  if (!node) return null;
+
+  return (
+    <div className="flex h-full flex-col gap-3 overflow-y-auto p-3">
+      <div className="flex items-center justify-between">
+        <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          {ROLE_LABELS[node.role] ?? "Estado"}
+        </h2>
+        <Button variant="destructive" size="xs" onClick={() => props.onDeleteState(node.id)}>
+          Eliminar
+        </Button>
+      </div>
+
+      {node.role === "state" ? (
+        <Label className="flex flex-col gap-1 text-[11px] font-medium text-muted-foreground">
+          Nombre
+          <Input
+            value={node.name}
+            onChange={(event) => props.onRenameState(node.id, event.target.value)}
+            className="h-8 text-xs"
+          />
+        </Label>
+      ) : (
+        <p className="text-xs leading-5 text-muted-foreground">
+          Un pseudo-estado no se renombra: el inicial y el final se dibujan como glifo, sin texto.
+        </p>
+      )}
+    </div>
   );
 }
 

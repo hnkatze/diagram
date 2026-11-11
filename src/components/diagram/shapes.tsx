@@ -18,11 +18,21 @@ import {
   NODE_HEADER_HEIGHT,
   NODE_PADDING_X,
   NODE_ROW_HEIGHT,
+  PSEUDO_STATE_SIZE,
   borderPoint,
   cardinalityPoints,
   formatFieldLabel,
+  measureState,
 } from "@/lib/diagram/measure";
-import type { DiagramEdge, DiagramKind, DiagramNode, Point, Rect } from "@/lib/diagram/types";
+import type {
+  DiagramEdge,
+  DiagramKind,
+  DiagramNode,
+  Point,
+  Rect,
+  StateNode,
+  Transition,
+} from "@/lib/diagram/types";
 
 /**
  * Canvas shapes. They mirror `src/lib/diagram/svg.ts` on purpose: same header
@@ -178,3 +188,196 @@ function RelationEdgeView({ source, target, sourceX, sourceY, targetX, targetY, 
 }
 
 export const RelationEdge = memo(RelationEdgeView);
+
+/* ------------------------------------------------------------------ states */
+
+/**
+ * State shapes (spec S8). Sizes come from `measureState`, so the box on screen is
+ * the box the layout reserved and the exporter will draw: nothing here
+ * re-derives a width, a height or a glyph size.
+ */
+
+/** Ratio of the filled dot inside the `final` ring, matching the exporter. */
+const FINAL_DOT_RATIO = 0.5;
+
+const HANDLE_CLASS =
+  "!h-2.5 !w-2.5 !border-0 !bg-muted-foreground opacity-0 transition-opacity group-hover:opacity-100";
+
+export interface StateNodeData extends Record<string, unknown> {
+  node: StateNode;
+}
+
+export type StateNodeType = Node<StateNodeData, "state">;
+
+function StateNodeView({ data, selected }: NodeProps<StateNodeType>) {
+  const { node } = data;
+  const size = measureState(node);
+  const dot = Math.round(PSEUDO_STATE_SIZE * FINAL_DOT_RATIO);
+
+  return (
+    <div className="group relative h-full w-full" data-role={node.role} data-name={node.name}>
+      <Handle type="target" position={Position.Left} className={HANDLE_CLASS} />
+      <Handle type="source" position={Position.Right} className={HANDLE_CLASS} />
+      {node.role === "initial" ? (
+        <div className="h-full w-full rounded-full bg-foreground" />
+      ) : node.role === "final" ? (
+        <div
+          className={`flex h-full w-full items-center justify-center rounded-full border-[1.5px] ${
+            selected ? "border-foreground" : "border-muted-foreground"
+          }`}
+        >
+          <div className="rounded-full bg-foreground" style={{ width: dot, height: dot }} />
+        </div>
+      ) : (
+        <div
+          className={`flex h-full w-full items-center justify-center rounded-lg border-[1.5px] bg-card ${
+            selected ? "border-foreground" : "border-border"
+          }`}
+          style={{ width: size.width, height: size.height }}
+        >
+          <span className="truncate px-3 text-sm font-semibold text-card-foreground">{node.name}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export const StateShape = memo(StateNodeView);
+
+export interface TransitionEdgeData extends Record<string, unknown> {
+  edge: Transition;
+}
+
+export type TransitionEdgeType = Edge<TransitionEdgeData, "transition">;
+
+/** Arrowhead length and half width, mirroring the exporter's 10x10 marker. */
+const ARROW_LENGTH = 10;
+const ARROW_HALF_WIDTH = 5;
+/** How far the label sits from the line it belongs to. */
+const TRANSITION_LABEL_OFFSET = 12;
+/** Reach and rise of a self transition loop, matching the exporter's loop. */
+const TRANSITION_LOOP_REACH = 56;
+const TRANSITION_LOOP_RISE = 40;
+
+const round2 = (value: number): number => Math.round(value * 100) / 100;
+
+/** A filled triangle whose tip sits on `tip`, pointing along (`dx`, `dy`). */
+function arrowHead(tip: Point, dx: number, dy: number, className: string) {
+  const length = Math.hypot(dx, dy) || 1;
+  const ux = dx / length;
+  const uy = dy / length;
+  const baseX = tip.x - ux * ARROW_LENGTH;
+  const baseY = tip.y - uy * ARROW_LENGTH;
+  const leftX = baseX - uy * ARROW_HALF_WIDTH;
+  const leftY = baseY + ux * ARROW_HALF_WIDTH;
+  const rightX = baseX + uy * ARROW_HALF_WIDTH;
+  const rightY = baseY - ux * ARROW_HALF_WIDTH;
+  return (
+    <path
+      d={`M ${round2(tip.x)} ${round2(tip.y)} L ${round2(leftX)} ${round2(leftY)} L ${round2(rightX)} ${round2(rightY)} Z`}
+      strokeWidth={1}
+      className={className}
+    />
+  );
+}
+
+/** Midpoint pushed off the line so the text never sits on top of it. */
+function offLine(from: Point, to: Point): Point {
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const length = Math.hypot(dx, dy) || 1;
+  const perpX = dy / length;
+  const perpY = -dx / length;
+  return {
+    x: round2((from.x + to.x) / 2 + perpX * TRANSITION_LABEL_OFFSET),
+    y: round2((from.y + to.y) / 2 + perpY * TRANSITION_LABEL_OFFSET),
+  };
+}
+
+function TransitionEdgeView({
+  source,
+  target,
+  sourceX,
+  sourceY,
+  targetX,
+  targetY,
+  data,
+  selected,
+}: EdgeProps<TransitionEdgeType>) {
+  const sourceNode = useInternalNode(source);
+  const targetNode = useInternalNode(target);
+  const edge = data?.edge;
+  if (!edge) return null;
+
+  const isSelfLoop = edge.source === edge.target || (sourceX === targetX && sourceY === targetY);
+  const sourceBox = rectOf(sourceNode);
+  const targetBox = rectOf(targetNode);
+  const strokeClass = selected ? "stroke-foreground fill-foreground" : "stroke-muted-foreground fill-muted-foreground";
+
+  if (isSelfLoop) {
+    // A loop leaves the right border and re-enters the top border, like the
+    // exporter draws it, so a self transition is never a zero length line.
+    const box = sourceBox;
+    if (!box) return null;
+    const startX = round2(box.x + box.width);
+    const startY = round2(box.y + box.height / 2);
+    const endX = round2(box.x + box.width / 2);
+    const endY = round2(box.y);
+    const controlX = round2(box.x + box.width + TRANSITION_LOOP_REACH);
+    const controlY = round2(endY - TRANSITION_LOOP_RISE);
+    const label = { x: round2(controlX + 6), y: round2(startY - 20) };
+    return (
+      <>
+        <path
+          d={`M ${startX} ${startY} C ${controlX} ${startY} ${controlX} ${controlY} ${endX} ${endY}`}
+          fill="none"
+          strokeWidth={selected ? 2.5 : 1.5}
+          className={selected ? "stroke-foreground" : "stroke-muted-foreground"}
+        />
+        {arrowHead({ x: endX, y: endY }, endX - controlX, endY - controlY, strokeClass)}
+        {edge.label === "" ? null : (
+          <EdgeLabelRenderer>
+            <span
+              className="pointer-events-none absolute rounded bg-card px-1 text-xs text-card-foreground"
+              style={{ transform: `translate(-50%, -50%) translate(${label.x}px, ${label.y}px)` }}
+            >
+              {edge.label}
+            </span>
+          </EdgeLabelRenderer>
+        )}
+      </>
+    );
+  }
+
+  // The border is resolved from shared geometry: a transition starts and ends on
+  // the shape border, exactly like a relation does.
+  const from: Point = sourceBox && targetBox ? borderPoint(sourceBox, targetBox.x + targetBox.width / 2, targetBox.y + targetBox.height / 2) : { x: sourceX, y: sourceY };
+  const to: Point = sourceBox && targetBox ? borderPoint(targetBox, sourceBox.x + sourceBox.width / 2, sourceBox.y + sourceBox.height / 2) : { x: targetX, y: targetY };
+  const label = offLine(from, to);
+
+  return (
+    <>
+      <line
+        x1={from.x}
+        y1={from.y}
+        x2={to.x}
+        y2={to.y}
+        strokeWidth={selected ? 2.5 : 1.5}
+        className={selected ? "stroke-foreground" : "stroke-muted-foreground"}
+      />
+      {arrowHead(to, to.x - from.x, to.y - from.y, strokeClass)}
+      {edge.label === "" ? null : (
+        <EdgeLabelRenderer>
+          <span
+            className="pointer-events-none absolute rounded bg-card px-1 text-xs text-card-foreground"
+            style={{ transform: `translate(-50%, -50%) translate(${label.x}px, ${label.y}px)` }}
+          >
+            {edge.label}
+          </span>
+        </EdgeLabelRenderer>
+      )}
+    </>
+  );
+}
+
+export const TransitionEdge = memo(TransitionEdgeView);
