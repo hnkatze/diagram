@@ -1,6 +1,6 @@
 import { validate } from "./model.ts";
 import type { Diagram, DiagramEdge, DiagramField, DiagramNode, Result } from "./types.ts";
-import { err, isCardinality, isDiagramKind, isVisibility, ok } from "./types.ts";
+import { err, isDiagramKind, isVisibility, normalizeCardinality, ok } from "./types.ts";
 
 /**
  * Persistence (spec S10): the autosaved local copy and the `.json` exchange
@@ -53,14 +53,32 @@ function readNode(value: unknown): DiagramNode | null {
   return { id, name, x, y, fields: parsedFields };
 }
 
-function readEdge(value: unknown): DiagramEdge | null {
-  if (!isRecord(value)) return null;
+function readEdge(value: unknown): Result<DiagramEdge> {
+  if (!isRecord(value)) return err("A relation is not an object");
   const { id, source, target, sourceCardinality, targetCardinality, label } = value;
-  if (typeof id !== "string" || typeof source !== "string" || typeof target !== "string") return null;
-  if (typeof sourceCardinality !== "string" || !isCardinality(sourceCardinality)) return null;
-  if (typeof targetCardinality !== "string" || !isCardinality(targetCardinality)) return null;
-  if (typeof label !== "string") return null;
-  return { id, source, target, sourceCardinality, targetCardinality, label };
+  if (typeof id !== "string" || typeof source !== "string" || typeof target !== "string") {
+    return err("A relation is missing its id, source or target");
+  }
+  if (typeof sourceCardinality !== "string") {
+    return err(`The relation "${id}" has no source cardinality`);
+  }
+  if (typeof targetCardinality !== "string") {
+    return err(`The relation "${id}" has no target cardinality`);
+  }
+  const from = normalizeCardinality(sourceCardinality);
+  if (!from) {
+    return err(
+      `The relation "${id}" has an unknown source cardinality "${sourceCardinality}" (expected 1, 0..1, 1..*, 0..* or *)`,
+    );
+  }
+  const to = normalizeCardinality(targetCardinality);
+  if (!to) {
+    return err(
+      `The relation "${id}" has an unknown target cardinality "${targetCardinality}" (expected 1, 0..1, 1..*, 0..* or *)`,
+    );
+  }
+  if (typeof label !== "string") return err(`The relation "${id}" has no label`);
+  return ok({ id, source, target, sourceCardinality: from, targetCardinality: to, label });
 }
 
 /** Deep runtime validation of anything claiming to be a diagram. */
@@ -82,8 +100,8 @@ export function readDiagram(value: unknown): Result<Diagram> {
   const parsedEdges: DiagramEdge[] = [];
   for (const edge of edges) {
     const parsed = readEdge(edge);
-    if (!parsed) return err("The diagram contains an invalid relation");
-    parsedEdges.push(parsed);
+    if (!parsed.ok) return err(parsed.error);
+    parsedEdges.push(parsed.value);
   }
 
   return validate({ version: FILE_VERSION, kind, title, nodes: parsedNodes, edges: parsedEdges });

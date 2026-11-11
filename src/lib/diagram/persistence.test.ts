@@ -102,6 +102,31 @@ test("structurally invalid diagrams are rejected", () => {
   }
 });
 
+test("the UML * shorthand is read as 0..* instead of rejecting the file", () => {
+  const value = JSON.parse(toFile(good())) as { diagram: Record<string, unknown> };
+  const edges = value.diagram.edges as Record<string, unknown>[];
+  edges[0].sourceCardinality = "*";
+  edges[0].targetCardinality = " * ";
+
+  const result = fromFile(JSON.stringify(value));
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.value.edges[0].sourceCardinality, "0..*");
+  assert.equal(result.value.edges[0].targetCardinality, "0..*");
+});
+
+test("an unknown cardinality names the relation and the offending value", () => {
+  const value = JSON.parse(toFile(good())) as { diagram: Record<string, unknown> };
+  const edges = value.diagram.edges as Record<string, unknown>[];
+  edges[0].sourceCardinality = "muchos";
+
+  const result = fromFile(JSON.stringify(value));
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.match(result.error, /cliente->pedido/);
+  assert.match(result.error, /muchos/);
+});
+
 test("storage saves, restores and tolerates corruption", () => {
   const store = memoryStore();
   assert.equal(writeStorage(store, good()), true);

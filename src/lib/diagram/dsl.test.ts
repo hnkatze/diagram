@@ -212,6 +212,13 @@ test("an unknown cardinality is an error", () => {
   assert.equal(error, 'Line 4: unknown cardinality "muchos"');
 });
 
+test("the UML * shorthand parses as 0..* and serializes canonically", () => {
+  const diagram = mustParse("entity A {\n}\n\nentity B {\n}\n\nA * -- 1 B");
+  assert.equal(diagram.edges[0].sourceCardinality, "0..*");
+  assert.equal(diagram.edges[0].targetCardinality, "1");
+  assert.match(serialize(diagram), /A 0\.\.\* -- 1 B/);
+});
+
 test("repeated relations between the same pair get distinct ids", () => {
   const diagram = mustParse("entity A {\n}\n\nA 1 -- 1 A\nA 1 -- 1 A");
   assert.equal(diagram.edges.length, 2);

@@ -79,6 +79,18 @@ export function isCardinality(value: string): value is Cardinality {
   return (CARDINALITIES as readonly string[]).includes(value);
 }
 
+/**
+ * Normalisation for anything coming from outside the model: a file or typed
+ * text. `*` is standard UML shorthand for "many" and is read as `0..*`, so a
+ * single shorthand never rejects an otherwise valid file. The model itself only
+ * ever stores the four canonical values.
+ */
+export function normalizeCardinality(value: string): Cardinality | null {
+  const trimmed = value.trim();
+  if (trimmed === "*") return "0..*";
+  return isCardinality(trimmed) ? trimmed : null;
+}
+
 export function isVisibility(value: string): value is Visibility {
   return (VISIBILITIES as readonly string[]).includes(value);
 }

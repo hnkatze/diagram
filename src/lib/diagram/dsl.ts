@@ -1,6 +1,5 @@
 import { slugify, uniqueId } from "./model.ts";
 import type {
-  Cardinality,
   Diagram,
   DiagramEdge,
   DiagramField,
@@ -9,7 +8,7 @@ import type {
   Result,
   Visibility,
 } from "./types.ts";
-import { err, isCardinality, isVisibility, ok } from "./types.ts";
+import { err, isVisibility, normalizeCardinality, ok } from "./types.ts";
 
 /**
  * Text projection of the diagram model (spec S5-S7).
@@ -242,10 +241,12 @@ function parseOrThrow(text: string): Diagram {
     if (dash.quoted || dash.value !== "--") {
       throw new DslError(line, 'expected "--" between the two cardinalities');
     }
-    if (!isCardinality(sourceCardinality.value)) {
+    const fromCard = normalizeCardinality(sourceCardinality.value);
+    if (!fromCard) {
       throw new DslError(line, `unknown cardinality "${sourceCardinality.value}"`);
     }
-    if (!isCardinality(targetCardinality.value)) {
+    const toCard = normalizeCardinality(targetCardinality.value);
+    if (!toCard) {
       throw new DslError(line, `unknown cardinality "${targetCardinality.value}"`);
     }
 
@@ -265,8 +266,8 @@ function parseOrThrow(text: string): Diagram {
       id,
       source: source.id,
       target: target.id,
-      sourceCardinality: sourceCardinality.value as Cardinality,
-      targetCardinality: targetCardinality.value as Cardinality,
+      sourceCardinality: fromCard,
+      targetCardinality: toCard,
       label,
     });
   }
