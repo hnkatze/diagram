@@ -1,14 +1,19 @@
 import { slugify, uniqueId } from "./model.ts";
 import type {
   ClassDiagramKind,
+  Diagram,
   DiagramField,
   ErDiagram,
   ErNode,
   RelationEdge,
   Result,
+  StateDiagram,
+  StateNode,
+  StateRole,
+  Transition,
   Visibility,
 } from "./types.ts";
-import { err, isVisibility, normalizeCardinality, ok } from "./types.ts";
+import { err, isStateDiagram, isVisibility, normalizeCardinality, ok } from "./types.ts";
 
 /**
  * Text projection of the diagram model (spec S5-S7).
@@ -41,6 +46,12 @@ interface EntityBlock {
   name: string;
   line: number;
   fields: DiagramField[];
+}
+
+interface StateBlock {
+  name: string;
+  role: StateRole;
+  line: number;
 }
 
 function tokenize(text: string, line: number): Token[] {
@@ -139,7 +150,7 @@ function escapeQuoted(value: string): string {
   return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
-function parseOrThrow(text: string): ErDiagram {
+function parseErDiagram(text: string): ErDiagram {
   const lines = text.split(/\r?\n/);
   let kind: ClassDiagramKind = "er";
   let title = "";
@@ -275,10 +286,166 @@ function parseOrThrow(text: string): ErDiagram {
   return { version: 1, kind, title, nodes, edges };
 }
 
+/**
+ * The kind named by the `diagram` header decides the family, so one header
+ * selects one grammar. A missing header keeps the historical default (`er`).
+ */
+function familyOf(text: string): "state" | "er" {
+  const lines = text.split(/\r?\n/);
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const trimmed = lines[index].trim();
+    if (trimmed === "" || trimmed.startsWith("//") || trimmed.startsWith("#")) continue;
+
+    const tokens = tokenize(trimmed, index + 1);
+    if (tokens[0].quoted || tokens[0].value.toLowerCase() !== "diagram") return "er";
+
+    const kindToken = tokens[1];
+    if (!kindToken) return "er";
+    return kindToken.value.toLowerCase() === "state" ? "state" : "er";
+  }
+
+  return "er";
+}
+
+/** Ids the pseudo-states own, so a state may never shadow them. */
+const RESERVED_STATE_SLUGS = ["initial", "final"] as const;
+
+function pseudoBase(role: StateRole): string {
+  return role === "initial" ? "initial" : "final";
+}
+
+function parseStateDiagram(text: string): StateDiagram {
+  const lines = text.split(/\r?\n/);
+  let title = "";
+  const declared: StateBlock[] = [];
+  const transitions: { line: number; tokens: Token[] }[] = [];
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = index + 1;
+    const trimmed = lines[index].trim();
+    if (trimmed === "") continue;
+    // `#` is not a comment here: only `//` comments out in the state grammar.
+    if (trimmed.startsWith("//")) continue;
+
+    const tokens = tokenize(trimmed, line);
+    const headToken = tokens[0];
+    const head = headToken.quoted ? "" : headToken.value.toLowerCase();
+    const arrow = tokens.findIndex((token) => !token.quoted && token.value === "-->");
+
+    if (arrow !== -1) {
+      if (arrow !== 1 || !tokens[2]) {
+        throw new DslError(line, 'a transition needs the shape "<from> --> <to>"');
+      }
+      transitions.push({ line, tokens });
+      continue;
+    }
+
+    if (head === "diagram") {
+      const kindToken = tokens[1];
+      if (!kindToken) throw new DslError(line, 'expected a diagram kind after "diagram"');
+      if (kindToken.value.toLowerCase() !== "state") {
+        throw new DslError(line, `unknown diagram kind "${kindToken.value}"`);
+      }
+      title = tokens[2] ? tokens[2].value : "";
+      if (tokens.length > 3) throw new DslError(line, "unexpected text after the diagram title");
+      continue;
+    }
+
+    if (head === "initial" || head === "final") {
+      if (tokens.length > 1) throw new DslError(line, `unexpected text after "${head}"`);
+      if (head === "initial" && declared.some((block) => block.role === "initial")) {
+        throw new DslError(line, "only one initial state is allowed");
+      }
+      declared.push({ name: "", role: head, line });
+      continue;
+    }
+
+    if (head === "state") {
+      const nameToken = tokens[1];
+      if (!nameToken) throw new DslError(line, 'expected a state name after "state"');
+      const name = nameToken.value.trim();
+      if (name === "") throw new DslError(line, "a state needs a name");
+      if (tokens.length > 2) throw new DslError(line, `unexpected "${tokens[2].value}" after the state name`);
+      declared.push({ name, role: "state", line });
+      continue;
+    }
+
+    throw new DslError(line, `unknown statement "${headToken.value}"`);
+  }
+
+  const takenIds: string[] = [];
+  const byReference = new Map<string, StateNode>();
+  const pseudoNodes: StateNode[] = [];
+  const stateNodes: StateNode[] = [];
+  const takenSlugs = new Set<string>();
+
+  // Pseudo-states first: their ids are fixed (`initial`, `final`, `final-2`...),
+  // so every other id and reference derives from a stable base.
+  for (const block of declared) {
+    if (block.role === "state") continue;
+    const id = uniqueId(pseudoBase(block.role), takenIds);
+    takenIds.push(id);
+    const node: StateNode = { id, name: "", x: 0, y: 0, role: block.role };
+    pseudoNodes.push(node);
+    byReference.set(id, node);
+  }
+
+  for (const block of declared) {
+    if (block.role !== "state") continue;
+    const slug = slugify(block.name);
+    if ((RESERVED_STATE_SLUGS as readonly string[]).includes(slug)) {
+      throw new DslError(block.line, `"${block.name}" is reserved for the ${slug} pseudo-state`);
+    }
+    if (takenSlugs.has(slug)) throw new DslError(block.line, `state "${block.name}" already exists`);
+    takenSlugs.add(slug);
+    const id = uniqueId(slug, takenIds);
+    takenIds.push(id);
+    const node: StateNode = { id, name: block.name, x: 0, y: 0, role: "state" };
+    stateNodes.push(node);
+    byReference.set(block.name, node);
+    byReference.set(block.name.toLowerCase(), node);
+    byReference.set(slug, node);
+  }
+
+  const resolve = (token: Token, line: number): StateNode => {
+    const found =
+      byReference.get(token.value) ??
+      byReference.get(token.value.toLowerCase()) ??
+      byReference.get(slugify(token.value));
+    if (!found) throw new DslError(line, `unknown state "${token.value}"`);
+    return found;
+  };
+
+  const edges: Transition[] = [];
+  const takenEdgeIds: string[] = [];
+
+  for (const transition of transitions) {
+    const { line, tokens } = transition;
+    const arrow = tokens.findIndex((token) => !token.quoted && token.value === "-->");
+    const from = tokens[arrow - 1];
+    const to = tokens[arrow + 1];
+    if (!from || !to) throw new DslError(line, 'a transition needs the shape "<from> --> <to>"');
+
+    const source = resolve(from, line);
+    const target = resolve(to, line);
+
+    const rest = tokens.slice(arrow + 2);
+    if (rest.length > 0 && !rest[0].quoted && rest[0].value === ":") rest.shift();
+    const label = rest.map((token) => token.value).join(" ");
+
+    const id = uniqueId(`${source.id}->${target.id}`, takenEdgeIds);
+    takenEdgeIds.push(id);
+    edges.push({ id, source: source.id, target: target.id, label });
+  }
+
+  return { version: 1, kind: "state", title, nodes: [...pseudoNodes, ...stateNodes], edges };
+}
+
 /** Parses DSL text. Every failure is returned, never thrown. */
-export function parse(text: string): Result<ErDiagram> {
+export function parse(text: string): Result<Diagram> {
   try {
-    return ok(parseOrThrow(text));
+    return ok(familyOf(text) === "state" ? parseStateDiagram(text) : parseErDiagram(text));
   } catch (error) {
     if (error instanceof DslError) return err(error.message);
     throw error;
@@ -300,7 +467,11 @@ function serializeField(field: DiagramField, kind: ClassDiagramKind): string {
 }
 
 /** Serializes the structure of a diagram. Coordinates are never emitted. */
-export function serialize(diagram: ErDiagram): string {
+export function serialize(diagram: Diagram): string {
+  return isStateDiagram(diagram) ? serializeState(diagram) : serializeEr(diagram);
+}
+
+function serializeEr(diagram: ErDiagram): string {
   const blocks: string[] = [
     `diagram ${diagram.kind === "uml-class" ? "uml" : "er"} "${escapeQuoted(diagram.title)}"`,
   ];
@@ -316,6 +487,45 @@ export function serialize(diagram: ErDiagram): string {
     const label = edge.label === "" ? "" : ` : "${escapeQuoted(edge.label)}"`;
     blocks.push(
       `${formatBareName(nameOf(edge.source))} ${edge.sourceCardinality} -- ${edge.targetCardinality} ${formatBareName(nameOf(edge.target))}${label}`,
+    );
+  }
+
+  return `${blocks.join("\n\n")}\n`;
+}
+
+/**
+ * State diagrams keep their own order: the pseudo-states first in model order,
+ * then the states, then the transitions. A parser round trip must not depend on
+ * where a declaration happened to appear in the previous text.
+ */
+function serializeState(diagram: StateDiagram): string {
+  const blocks: string[] = [`diagram state "${escapeQuoted(diagram.title)}"`];
+
+  const pseudoLines = diagram.nodes
+    .filter((node) => node.role !== "state")
+    .map((node) => node.role);
+  const stateLines = diagram.nodes
+    .filter((node) => node.role === "state")
+    .map((node) => `state ${formatBareName(node.name)}`);
+  const nodeLines = [...pseudoLines, ...stateLines];
+  if (nodeLines.length > 0) blocks.push(nodeLines.join("\n"));
+
+  const nodeOf = (id: string): StateNode | undefined => diagram.nodes.find((node) => node.id === id);
+  const referenceTo = (id: string): string => {
+    const node = nodeOf(id);
+    if (!node) return id;
+    // Pseudo-states are referenced by id; real states by name.
+    return node.role === "state" ? formatBareName(node.name) : node.id;
+  };
+
+  if (diagram.edges.length > 0) {
+    blocks.push(
+      diagram.edges
+        .map((edge) => {
+          const label = edge.label === "" ? "" : ` : "${escapeQuoted(edge.label)}"`;
+          return `${referenceTo(edge.source)} --> ${referenceTo(edge.target)}${label}`;
+        })
+        .join("\n"),
     );
   }
 

@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 
 import { parse, serialize } from "./dsl.ts";
 import { moveNode } from "./model.ts";
-import type { ErDiagram } from "./types.ts";
+import type { ErDiagram, StateDiagram } from "./types.ts";
+import { isErDiagram, isStateDiagram } from "./types.ts";
 
 const SAMPLE = `diagram er "Tienda"
 
@@ -25,6 +26,7 @@ Usuario 1..* -- 0..1 Pedido : "realiza"
 function mustParse(text: string): ErDiagram {
   const result = parse(text);
   if (!result.ok) throw new Error(`expected a diagram, got: ${result.error}`);
+  if (!isErDiagram(result.value)) throw new Error(`expected a class diagram, got ${result.value.kind}`);
   return result.value;
 }
 
@@ -242,4 +244,124 @@ test("garbage never throws, it returns an error", () => {
   assert.equal(parse('entity "unterminated {').ok, false);
   assert.equal(parse("}").ok, false);
   assert.equal(parse('diagram sideway ""').ok, false);
+});
+
+const STATE_SAMPLE = `diagram state "Ciclo del pedido"
+
+initial
+state Nuevo
+state Pagado
+final
+
+Nuevo --> Pagado : "pagar [monto > 0] / emitir recibo"
+Pagado --> Pagado : "reintentar"
+Pagado --> final
+`;
+
+function mustParseState(text: string): StateDiagram {
+  const result = parse(text);
+  if (!result.ok) throw new Error(`expected a diagram, got: ${result.error}`);
+  if (!isStateDiagram(result.value)) throw new Error(`expected a state diagram, got ${result.value.kind}`);
+  return result.value;
+}
+
+test("the documented state sample parses into the expected structure", () => {
+  const diagram = mustParseState(STATE_SAMPLE);
+
+  assert.equal(diagram.kind, "state");
+  assert.equal(diagram.title, "Ciclo del pedido");
+  assert.deepEqual(
+    diagram.nodes.map((node) => [node.id, node.name, node.role, node.x, node.y]),
+    [
+      ["initial", "", "initial", 0, 0],
+      ["final", "", "final", 0, 0],
+      ["nuevo", "Nuevo", "state", 0, 0],
+      ["pagado", "Pagado", "state", 0, 0],
+    ],
+  );
+  assert.deepEqual(diagram.edges, [
+    { id: "nuevo->pagado", source: "nuevo", target: "pagado", label: "pagar [monto > 0] / emitir recibo" },
+    { id: "pagado->pagado", source: "pagado", target: "pagado", label: "reintentar" },
+    { id: "pagado->final", source: "pagado", target: "final", label: "" },
+  ]);
+});
+
+test("the state sample serializes twice to the same bytes and rebuilds the same structure", () => {
+  const first = serialize(mustParseState(STATE_SAMPLE));
+  const second = serialize(mustParseState(first));
+
+  assert.equal(second, first);
+  assert.match(first, /^diagram state "Ciclo del pedido"/);
+  assert.deepEqual(mustParseState(first), mustParseState(STATE_SAMPLE));
+});
+
+test("initial and final parse without any state", () => {
+  const diagram = mustParseState('diagram state "Solo pseudos"\n\ninitial\nfinal');
+
+  assert.deepEqual(
+    diagram.nodes.map((node) => [node.id, node.role]),
+    [
+      ["initial", "initial"],
+      ["final", "final"],
+    ],
+  );
+  assert.equal(diagram.edges.length, 0);
+});
+
+test("a second initial declaration is an error with its line number", () => {
+  assert.equal(
+    mustFail('diagram state "X"\n\ninitial\ninitial'),
+    "Line 4: only one initial state is allowed",
+  );
+});
+
+test("a duplicated state name is an error with its line number", () => {
+  assert.equal(
+    mustFail('diagram state "X"\n\nstate Nuevo\nstate Nuevo'),
+    'Line 4: state "Nuevo" already exists',
+  );
+});
+
+test("an unknown transition endpoint is an error with its line number", () => {
+  assert.equal(
+    mustFail('diagram state "X"\n\nstate Nuevo\nNuevo --> Fantasma'),
+    'Line 4: unknown state "Fantasma"',
+  );
+});
+
+test("a self transition parses into a loop", () => {
+  const diagram = mustParseState('diagram state "X"\n\nstate Pagado\nPagado --> Pagado : "reintentar"');
+
+  assert.deepEqual(diagram.edges, [
+    { id: "pagado->pagado", source: "pagado", target: "pagado", label: "reintentar" },
+  ]);
+});
+
+test("repeated final pseudo-states get distinct ids", () => {
+  const diagram = mustParseState('diagram state "X"\n\nstate A\nfinal\nfinal');
+
+  assert.deepEqual(
+    diagram.nodes.filter((node) => node.role === "final").map((node) => node.id),
+    ["final", "final-2"],
+  );
+  assert.equal(serialize(mustParseState(serialize(diagram))), serialize(diagram));
+});
+
+test("a transition without a label serializes without the colon", () => {
+  const diagram = mustParseState('diagram state "X"\n\nstate A\nstate B\nA --> B');
+  const text = serialize(diagram);
+
+  assert.equal(diagram.edges[0].label, "");
+  assert.match(text, /A --> B$/m);
+  assert.doesNotMatch(text, /A --> B :/);
+  assert.equal(mustParseState(text).edges[0].label, "");
+});
+
+test("headerless ER text still defaults to er and round trips identically", () => {
+  const diagram = mustParse("entity A {\n  id int pk\n}\n\nentity B {\n}\n\nA 1 -- 1 B");
+
+  assert.equal(diagram.kind, "er");
+  const text = serialize(diagram);
+  assert.match(text, /^diagram er ""/);
+  assert.equal(serialize(mustParse(text)), text);
 });

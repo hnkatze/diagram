@@ -50,6 +50,13 @@ interface Draft {
 
 const NEW_ENTITY_NAME = "Entidad";
 
+/**
+ * Interim copy (T2): the panel can now parse a state document, but there is no
+ * state canvas yet. T5 replaces this message with the real kind switch.
+ */
+const STATE_PANEL_MESSAGE =
+  "Los diagramas de estados todavía no se editan desde el panel: falta el canvas de estados.";
+
 function nextEntityName(diagram: ErDiagram, base: string = NEW_ENTITY_NAME): string {
   const taken = new Set(diagram.nodes.map((node) => slugify(node.name)));
   if (!taken.has(slugify(base))) return base;
@@ -124,6 +131,13 @@ export function DiagramEditor() {
       const parsed = parse(raw);
       if (!parsed.ok) {
         setDraft({ text: raw, base: diagram, error: parsed.error });
+        return;
+      }
+      // Interim guard, replaced by T5's kind switch: a state document never
+      // touches the model, so no history step is committed and nothing renders
+      // a half-imported family.
+      if (!isErDiagram(parsed.value)) {
+        setDraft({ text: raw, base: diagram, error: STATE_PANEL_MESSAGE });
         return;
       }
       const merged = mergeStructure(parsed.value, diagram);

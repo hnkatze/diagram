@@ -2,6 +2,7 @@ import { parse } from "./dsl.ts";
 import { layout } from "./layout.ts";
 import { createDiagram } from "./model.ts";
 import type { ClassDiagramKind, ErDiagram } from "./types.ts";
+import { isErDiagram } from "./types.ts";
 
 /**
  * Bundled content (spec S11). Samples are written in the DSL, so they double as
@@ -85,8 +86,11 @@ export const SAMPLES: readonly Sample[] = [
 
 function build(text: string): ErDiagram {
   const parsed = parse(text);
-  // A broken bundled sample must never blank the editor.
-  return layout(parsed.ok ? parsed.value : createDiagram("er", ""));
+  // A broken bundled sample must never blank the editor. Every bundled sample is
+  // a class diagram, so a state document falls back the same way instead of
+  // reaching class-only layout code.
+  const diagram = parsed.ok && isErDiagram(parsed.value) ? parsed.value : createDiagram("er", "");
+  return layout(diagram);
 }
 
 export function sampleById(id: string): ErDiagram {
