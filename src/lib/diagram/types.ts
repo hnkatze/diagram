@@ -3,11 +3,17 @@
  * The canvas and the text DSL are both projections of this structure.
  */
 
-export type DiagramKind = "er" | "uml-class";
+/** Every family the model knows about. */
+export type DiagramKind = "er" | "uml-class" | "state";
+
+/** The two class families: nodes carry fields, edges carry cardinalities. */
+export type ClassDiagramKind = "er" | "uml-class";
 
 export type Visibility = "+" | "-" | "#";
 
 export type Cardinality = "1" | "0..1" | "1..*" | "0..*";
+
+export type StateRole = "state" | "initial" | "final";
 
 export interface DiagramField {
   name: string;
@@ -20,7 +26,8 @@ export interface DiagramField {
   nullable: boolean;
 }
 
-export interface DiagramNode {
+/** An entity or class box. */
+export interface ErNode {
   /** Stable slug of `name`; collisions get a `-2`, `-3` suffix. */
   id: string;
   name: string;
@@ -29,7 +36,8 @@ export interface DiagramNode {
   fields: DiagramField[];
 }
 
-export interface DiagramEdge {
+/** A relation between two class nodes, with a cardinality on each end. */
+export interface RelationEdge {
   id: string;
   /** Id of the source node. */
   source: string;
@@ -40,13 +48,56 @@ export interface DiagramEdge {
   label: string;
 }
 
-export interface Diagram {
-  version: typeof DIAGRAM_VERSION;
-  kind: DiagramKind;
-  title: string;
-  nodes: DiagramNode[];
-  edges: DiagramEdge[];
+/** A state or pseudo-state of a state machine. */
+export interface StateNode {
+  id: string;
+  /** Empty for the `initial` and `final` pseudo-states. */
+  name: string;
+  x: number;
+  y: number;
+  role: StateRole;
 }
+
+/** A state transition. The label is free text, stored verbatim. */
+export interface Transition {
+  id: string;
+  /** Id of the source state. */
+  source: string;
+  /** Id of the target state. */
+  target: string;
+  label: string;
+}
+
+/**
+ * A diagram of one family. The union is discriminated by `kind` on purpose:
+ * fields and cardinalities have no meaning for a state machine, so one flat
+ * shape would make a state with fields or a transition with a cardinality
+ * representable.
+ */
+export interface ErDiagram {
+  version: typeof DIAGRAM_VERSION;
+  kind: ClassDiagramKind;
+  title: string;
+  nodes: ErNode[];
+  edges: RelationEdge[];
+}
+
+export interface StateDiagram {
+  version: typeof DIAGRAM_VERSION;
+  kind: "state";
+  title: string;
+  nodes: StateNode[];
+  edges: Transition[];
+}
+
+export type Diagram = ErDiagram | StateDiagram;
+
+/** The class families, the only ones with fields and cardinalities. */
+export type ClassDiagram = ErDiagram;
+
+/** Previous names, kept as aliases so existing callers keep their wording. */
+export type DiagramNode = ErNode;
+export type DiagramEdge = RelationEdge;
 
 export interface Point {
   x: number;
@@ -96,5 +147,18 @@ export function isVisibility(value: string): value is Visibility {
 }
 
 export function isDiagramKind(value: string): value is DiagramKind {
+  return value === "er" || value === "uml-class" || value === "state";
+}
+
+export function isClassDiagramKind(value: string): value is ClassDiagramKind {
   return value === "er" || value === "uml-class";
+}
+
+/** Narrows the union without a cast, so class-only helpers stay class-only. */
+export function isErDiagram(diagram: Diagram): diagram is ErDiagram {
+  return diagram.kind !== "state";
+}
+
+export function isStateDiagram(diagram: Diagram): diagram is StateDiagram {
+  return diagram.kind === "state";
 }

@@ -19,10 +19,10 @@ import {
   updateField,
   validate,
 } from "./model.ts";
-import type { Diagram } from "./types.ts";
+import type { ErDiagram } from "./types.ts";
 
 /** Usuario -> Pedido with one field each, the base fixture for the operations below. */
-function fixture(): Diagram {
+function fixture(): ErDiagram {
   const user = addNode(createDiagram("er", "Tienda"), "Usuario");
   assert.equal(user.ok, true);
   if (!user.ok) throw new Error("unreachable");
@@ -183,7 +183,7 @@ test("validate accepts a well formed diagram and reports the broken reason", () 
 test("mergeStructure keeps known positions and stacks the new entities", () => {
   const previous = moveNode(moveNode(fixture(), "usuario", 100, 100), "pedido", 400, 100);
 
-  const parsed: Diagram = {
+  const parsed: ErDiagram = {
     ...previous,
     nodes: [
       { ...previous.nodes[0], x: 0, y: 0 },

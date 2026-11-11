@@ -4,9 +4,9 @@ import assert from "node:assert/strict";
 import { parse } from "./dsl.ts";
 import { measureNode } from "./measure.ts";
 import { SAMPLES, defaultDiagram, sampleById } from "./samples.ts";
-import type { Diagram } from "./types.ts";
+import type { ErDiagram } from "./types.ts";
 
-function overlaps(diagram: Diagram): boolean {
+function overlaps(diagram: ErDiagram): boolean {
   for (let i = 0; i < diagram.nodes.length; i += 1) {
     for (let j = i + 1; j < diagram.nodes.length; j += 1) {
       const one = diagram.nodes[i];

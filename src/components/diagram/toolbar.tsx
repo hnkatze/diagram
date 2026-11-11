@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { SAMPLES } from "@/lib/diagram/samples";
-import type { Diagram, DiagramKind } from "@/lib/diagram/types";
+import type { ClassDiagramKind, Diagram } from "@/lib/diagram/types";
 
 export type ExportFormat = "svg" | "png1" | "png2" | "png3" | "json";
 
@@ -28,7 +28,7 @@ export interface ToolbarProps {
   onUndo: () => void;
   onRedo: () => void;
   onTitle: (title: string) => void;
-  onKind: (kind: DiagramKind) => void;
+  onKind: (kind: ClassDiagramKind) => void;
   onAddEntity: () => void;
   onLayout: () => void;
   onLoadSample: (id: string) => void;

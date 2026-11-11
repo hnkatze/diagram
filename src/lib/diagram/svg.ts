@@ -11,7 +11,7 @@ import {
   formatFieldLabel,
   measureNode,
 } from "./measure.ts";
-import type { Diagram, DiagramEdge, DiagramKind, DiagramNode, Rect } from "./types.ts";
+import type { DiagramKind, ErDiagram, ErNode, Rect, RelationEdge } from "./types.ts";
 
 /**
  * Image exporter (spec S9). A pure `Diagram -> SVG` projection: no DOM, no
@@ -89,7 +89,7 @@ function round(value: number): number {
   return Math.round(value * 100) / 100;
 }
 
-export function toSvg(diagram: Diagram, options: SvgOptions = {}): string {
+export function toSvg(diagram: ErDiagram, options: SvgOptions = {}): string {
   const padding = options.padding ?? DEFAULT_PADDING;
   const palette = PALETTES[options.theme ?? "dark"];
   const background = options.background ?? palette.background;
@@ -100,7 +100,7 @@ export function toSvg(diagram: Diagram, options: SvgOptions = {}): string {
   const width = Math.max(1, Math.ceil(box.width));
   const height = Math.max(1, Math.ceil(box.height + titleHeight));
 
-  const boxOf = (node: DiagramNode): Rect => {
+  const boxOf = (node: ErNode): Rect => {
     const size = measureNode(node, diagram.kind);
     return {
       x: round(node.x - box.x),
@@ -143,7 +143,7 @@ export function toSvg(diagram: Diagram, options: SvgOptions = {}): string {
   return parts.join("");
 }
 
-function renderEdge(edge: DiagramEdge, boxes: Map<string, Rect>, palette: Palette, background: string): string {
+function renderEdge(edge: RelationEdge, boxes: Map<string, Rect>, palette: Palette, background: string): string {
   const source = boxes.get(edge.source);
   const target = boxes.get(edge.target);
   if (!source || !target) return "";
@@ -209,7 +209,7 @@ function renderEdge(edge: DiagramEdge, boxes: Map<string, Rect>, palette: Palett
   return parts.join("");
 }
 
-function renderNode(node: DiagramNode, box: Rect, kind: DiagramKind, palette: Palette): string {
+function renderNode(node: ErNode, box: Rect, kind: DiagramKind, palette: Palette): string {
   const clipId = `box-${node.id.replace(/[^A-Za-z0-9_-]/g, "-")}`;
   const parts: string[] = [];
 

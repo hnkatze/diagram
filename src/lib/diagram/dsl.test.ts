@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 import { parse, serialize } from "./dsl.ts";
 import { moveNode } from "./model.ts";
-import type { Diagram } from "./types.ts";
+import type { ErDiagram } from "./types.ts";
 
 const SAMPLE = `diagram er "Tienda"
 
@@ -22,7 +22,7 @@ entity Pedido {
 Usuario 1..* -- 0..1 Pedido : "realiza"
 `;
 
-function mustParse(text: string): Diagram {
+function mustParse(text: string): ErDiagram {
   const result = parse(text);
   if (!result.ok) throw new Error(`expected a diagram, got: ${result.error}`);
   return result.value;

@@ -1,10 +1,10 @@
 import { slugify, uniqueId } from "./model.ts";
 import type {
-  Diagram,
-  DiagramEdge,
+  ClassDiagramKind,
   DiagramField,
-  DiagramKind,
-  DiagramNode,
+  ErDiagram,
+  ErNode,
+  RelationEdge,
   Result,
   Visibility,
 } from "./types.ts";
@@ -139,9 +139,9 @@ function escapeQuoted(value: string): string {
   return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
-function parseOrThrow(text: string): Diagram {
+function parseOrThrow(text: string): ErDiagram {
   const lines = text.split(/\r?\n/);
-  let kind: DiagramKind = "er";
+  let kind: ClassDiagramKind = "er";
   let title = "";
   let open: EntityBlock | null = null;
   const blocks: EntityBlock[] = [];
@@ -202,8 +202,8 @@ function parseOrThrow(text: string): Diagram {
 
   const takenIds: string[] = [];
   const takenSlugs = new Set<string>();
-  const nodes: DiagramNode[] = [];
-  const byReference = new Map<string, DiagramNode>();
+  const nodes: ErNode[] = [];
+  const byReference = new Map<string, ErNode>();
 
   for (const block of blocks) {
     const name = block.name.trim();
@@ -213,14 +213,14 @@ function parseOrThrow(text: string): Diagram {
     takenSlugs.add(slug);
     const id = uniqueId(slug, takenIds);
     takenIds.push(id);
-    const node: DiagramNode = { id, name, x: 0, y: 0, fields: block.fields };
+    const node: ErNode = { id, name, x: 0, y: 0, fields: block.fields };
     nodes.push(node);
     byReference.set(name, node);
     byReference.set(name.toLowerCase(), node);
     byReference.set(slug, node);
   }
 
-  const resolve = (token: Token, line: number): DiagramNode => {
+  const resolve = (token: Token, line: number): ErNode => {
     const found =
       byReference.get(token.value) ??
       byReference.get(token.value.toLowerCase()) ??
@@ -229,7 +229,7 @@ function parseOrThrow(text: string): Diagram {
     return found;
   };
 
-  const edges: DiagramEdge[] = [];
+  const edges: RelationEdge[] = [];
   const takenEdgeIds: string[] = [];
 
   for (const relation of relations) {
@@ -276,7 +276,7 @@ function parseOrThrow(text: string): Diagram {
 }
 
 /** Parses DSL text. Every failure is returned, never thrown. */
-export function parse(text: string): Result<Diagram> {
+export function parse(text: string): Result<ErDiagram> {
   try {
     return ok(parseOrThrow(text));
   } catch (error) {
@@ -285,7 +285,7 @@ export function parse(text: string): Result<Diagram> {
   }
 }
 
-function serializeField(field: DiagramField, kind: DiagramKind): string {
+function serializeField(field: DiagramField, kind: ClassDiagramKind): string {
   const glyph = kind === "uml-class" ? `${field.visibility} ` : "";
   const flags = [
     field.pk ? "pk" : "",
@@ -300,7 +300,7 @@ function serializeField(field: DiagramField, kind: DiagramKind): string {
 }
 
 /** Serializes the structure of a diagram. Coordinates are never emitted. */
-export function serialize(diagram: Diagram): string {
+export function serialize(diagram: ErDiagram): string {
   const blocks: string[] = [
     `diagram ${diagram.kind === "uml-class" ? "uml" : "er"} "${escapeQuoted(diagram.title)}"`,
   ];

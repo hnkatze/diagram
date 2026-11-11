@@ -1,7 +1,7 @@
 import dagre from "@dagrejs/dagre";
 
 import { measureNode } from "./measure.ts";
-import type { Diagram } from "./types.ts";
+import type { ErDiagram } from "./types.ts";
 
 /**
  * Automatic layout (spec S8). Deterministic: the same diagram always produces
@@ -13,7 +13,7 @@ export const LAYOUT_RANK_SEPARATION = 90;
 export const LAYOUT_MARGIN = 40;
 
 /** Recomputes every node position, leaving the structure untouched. */
-export function layout(diagram: Diagram): Diagram {
+export function layout(diagram: ErDiagram): ErDiagram {
   if (diagram.nodes.length === 0) return diagram;
 
   const graph = new dagre.graphlib.Graph({ multigraph: true });
@@ -62,7 +62,7 @@ export function layout(diagram: Diagram): Diagram {
  * Places only the given entities with dagre and leaves every other entity
  * exactly where the user put it (spec S7).
  */
-export function layoutNewNodes(diagram: Diagram, addedIds: readonly string[]): Diagram {
+export function layoutNewNodes(diagram: ErDiagram, addedIds: readonly string[]): ErDiagram {
   if (addedIds.length === 0) return diagram;
   if (diagram.nodes.length === 0) return diagram;
 

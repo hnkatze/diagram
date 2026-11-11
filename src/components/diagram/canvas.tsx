@@ -16,13 +16,13 @@ import {
 import "@xyflow/react/dist/style.css";
 
 import { measureNode } from "@/lib/diagram/measure";
-import type { Diagram } from "@/lib/diagram/types";
+import type { ErDiagram } from "@/lib/diagram/types";
 import { EntityNode, RelationEdge, type EntityNodeType, type RelationEdgeType } from "./shapes";
 
 const nodeTypes: NodeTypes = { entity: EntityNode };
 const edgeTypes: EdgeTypes = { relation: RelationEdge };
 
-function toNodes(diagram: Diagram, selectedId: string | null): EntityNodeType[] {
+function toNodes(diagram: ErDiagram, selectedId: string | null): EntityNodeType[] {
   return diagram.nodes.map((node) => {
     const size = measureNode(node, diagram.kind);
     return {
@@ -36,7 +36,7 @@ function toNodes(diagram: Diagram, selectedId: string | null): EntityNodeType[] 
   });
 }
 
-function toEdges(diagram: Diagram, selectedId: string | null): RelationEdgeType[] {
+function toEdges(diagram: ErDiagram, selectedId: string | null): RelationEdgeType[] {
   return diagram.edges.map((edge) => ({
     id: edge.id,
     type: "relation",
@@ -48,7 +48,7 @@ function toEdges(diagram: Diagram, selectedId: string | null): RelationEdgeType[
 }
 
 export interface CanvasProps {
-  diagram: Diagram;
+  diagram: ErDiagram;
   selectedId: string | null;
   onSelect: (id: string | null) => void;
   onMove: (id: string, x: number, y: number) => void;

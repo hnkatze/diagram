@@ -1,4 +1,4 @@
-import type { Diagram, DiagramField, DiagramKind, DiagramNode, Point, Rect, Size } from "./types.ts";
+import type { DiagramField, DiagramKind, ErDiagram, ErNode, Point, Rect, Size } from "./types.ts";
 
 /**
  * Node geometry is shared by the canvas and the image exporter so both agree
@@ -39,7 +39,7 @@ export function formatFieldLabel(field: DiagramField, kind: DiagramKind): string
   return `${glyph}${field.name}${nullMark}${type}${suffix}`;
 }
 
-export function measureNode(node: DiagramNode, kind: DiagramKind): Size {
+export function measureNode(node: ErNode, kind: DiagramKind): Size {
   const nameWidth = estimateTextWidth(node.name, NAME_FONT_SIZE) + NODE_PADDING_X * 2;
   const rowWidths = node.fields.map(
     (field) => estimateTextWidth(formatFieldLabel(field, kind), ROW_FONT_SIZE, true) + NODE_PADDING_X * 2,
@@ -120,7 +120,7 @@ export function cardinalityPoints(
 }
 
 /** Bounding box of every node, expanded by `padding`, used by the exporter. */
-export function bounds(diagram: Diagram, padding = 40): Rect {
+export function bounds(diagram: ErDiagram, padding = 40): Rect {
   if (diagram.nodes.length === 0) {
     return { x: 0, y: 0, width: padding * 2, height: padding * 2 };
   }

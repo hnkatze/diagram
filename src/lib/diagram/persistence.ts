@@ -1,6 +1,6 @@
 import { validate } from "./model.ts";
-import type { Diagram, DiagramEdge, DiagramField, DiagramNode, Result } from "./types.ts";
-import { err, isDiagramKind, isVisibility, normalizeCardinality, ok } from "./types.ts";
+import type { Diagram, DiagramField, ErDiagram, ErNode, RelationEdge, Result } from "./types.ts";
+import { err, isClassDiagramKind, isDiagramKind, isVisibility, normalizeCardinality, ok } from "./types.ts";
 
 /**
  * Persistence (spec S10): the autosaved local copy and the `.json` exchange
@@ -37,7 +37,7 @@ function readField(value: unknown): DiagramField | null {
   return { name, type, visibility, pk, fk, uk, nullable };
 }
 
-function readNode(value: unknown): DiagramNode | null {
+function readNode(value: unknown): ErNode | null {
   if (!isRecord(value)) return null;
   const { id, name, x, y, fields } = value;
   if (typeof id !== "string" || typeof name !== "string") return null;
@@ -53,7 +53,7 @@ function readNode(value: unknown): DiagramNode | null {
   return { id, name, x, y, fields: parsedFields };
 }
 
-function readEdge(value: unknown): Result<DiagramEdge> {
+function readEdge(value: unknown): Result<RelationEdge> {
   if (!isRecord(value)) return err("A relation is not an object");
   const { id, source, target, sourceCardinality, targetCardinality, label } = value;
   if (typeof id !== "string" || typeof source !== "string" || typeof target !== "string") {
@@ -82,22 +82,24 @@ function readEdge(value: unknown): Result<DiagramEdge> {
 }
 
 /** Deep runtime validation of anything claiming to be a diagram. */
-export function readDiagram(value: unknown): Result<Diagram> {
+export function readDiagram(value: unknown): Result<ErDiagram> {
   if (!isRecord(value)) return err("The diagram is not an object");
   const { kind, title, nodes, edges, version } = value;
   if (version !== undefined && version !== FILE_VERSION) return err(`Unsupported diagram version ${String(version)}`);
   if (typeof kind !== "string" || !isDiagramKind(kind)) return err("The diagram has an unknown kind");
+  // The state family is modelled in `types.ts` but its reader lands with T6.
+  if (!isClassDiagramKind(kind)) return err("State diagrams are not supported yet");
   if (typeof title !== "string") return err("The diagram title is missing");
   if (!Array.isArray(nodes) || !Array.isArray(edges)) return err("The diagram has no entities or relations");
 
-  const parsedNodes: DiagramNode[] = [];
+  const parsedNodes: ErNode[] = [];
   for (const node of nodes) {
     const parsed = readNode(node);
     if (!parsed) return err("The diagram contains an invalid entity");
     parsedNodes.push(parsed);
   }
 
-  const parsedEdges: DiagramEdge[] = [];
+  const parsedEdges: RelationEdge[] = [];
   for (const edge of edges) {
     const parsed = readEdge(edge);
     if (!parsed.ok) return err(parsed.error);
@@ -107,7 +109,7 @@ export function readDiagram(value: unknown): Result<Diagram> {
   return validate({ version: FILE_VERSION, kind, title, nodes: parsedNodes, edges: parsedEdges });
 }
 
-export function fromFile(text: string): Result<Diagram> {
+export function fromFile(text: string): Result<ErDiagram> {
   let payload: unknown;
   try {
     payload = JSON.parse(text);
@@ -123,7 +125,7 @@ export function fromFile(text: string): Result<Diagram> {
 }
 
 /** Restores the autosaved diagram, or `null` when absent, unreadable or corrupt. */
-export function readStorage(store: KeyValueStore | null): Diagram | null {
+export function readStorage(store: KeyValueStore | null): ErDiagram | null {
   if (!store) return null;
   let raw: string | null = null;
   try {

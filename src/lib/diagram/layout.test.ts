@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 import { layout, layoutNewNodes } from "./layout.ts";
 import { measureNode } from "./measure.ts";
-import type { Diagram, DiagramEdge, DiagramNode } from "./types.ts";
+import type { ClassDiagramKind, DiagramEdge, DiagramNode, ErDiagram } from "./types.ts";
 
 const node = (id: string, name: string): DiagramNode => ({ id, name, x: 0, y: 0, fields: [] });
 
@@ -16,7 +16,7 @@ const edge = (source: string, target: string, id = `${source}->${target}`): Diag
   label: "",
 });
 
-const chain = (): Diagram => ({
+const chain = (): ErDiagram => ({
   version: 1,
   kind: "er",
   title: "",
@@ -24,7 +24,7 @@ const chain = (): Diagram => ({
   edges: [edge("a", "b"), edge("b", "c")],
 });
 
-function overlaps(first: DiagramNode, second: DiagramNode, kind: Diagram["kind"]): boolean {
+function overlaps(first: DiagramNode, second: DiagramNode, kind: ClassDiagramKind): boolean {
   const one = measureNode(first, kind);
   const two = measureNode(second, kind);
   return (
@@ -65,7 +65,7 @@ test("a chain flows top to bottom without overlapping boxes", () => {
 });
 
 test("siblings of the same rank do not overlap horizontally", () => {
-  const wide: Diagram = {
+  const wide: ErDiagram = {
     version: 1,
     kind: "er",
     title: "",
@@ -104,14 +104,14 @@ test("self relations do not break the layout", () => {
 });
 
 test("an empty diagram is returned untouched", () => {
-  const empty: Diagram = { version: 1, kind: "er", title: "", nodes: [], edges: [] };
+  const empty: ErDiagram = { version: 1, kind: "er", title: "", nodes: [], edges: [] };
   assert.deepEqual(layout(empty), empty);
 });
 
 test("layoutNewNodes moves only the new entities", () => {
   const before = chain();
   const pinned = before.nodes.map((node, index) => ({ ...node, x: 500 + index * 300, y: 700 }));
-  const withNew: Diagram = {
+  const withNew: ErDiagram = {
     ...before,
     nodes: [...pinned, node("d", "Delta")],
     edges: [...before.edges, edge("c", "d")],

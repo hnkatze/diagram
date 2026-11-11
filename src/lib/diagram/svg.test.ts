@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 import { bounds, formatFieldLabel, measureNode } from "./measure.ts";
 import { toSvg } from "./svg.ts";
-import type { Diagram, DiagramEdge, DiagramField, DiagramNode } from "./types.ts";
+import type { DiagramEdge, DiagramField, DiagramNode, ErDiagram } from "./types.ts";
 
 const field = (over: Partial<DiagramField> = {}): DiagramField => ({
   name: "id",
@@ -35,7 +35,7 @@ const edge = (over: Partial<DiagramEdge> = {}): DiagramEdge => ({
   ...over,
 });
 
-const diagram = (over: Partial<Diagram> = {}): Diagram => ({
+const diagram = (over: Partial<ErDiagram> = {}): ErDiagram => ({
   version: 1,
   kind: "er",
   title: "",

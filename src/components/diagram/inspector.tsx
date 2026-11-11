@@ -4,11 +4,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
-import type { Cardinality, Diagram, DiagramField, Visibility } from "@/lib/diagram/types";
+import type { Cardinality, DiagramField, ErDiagram, Visibility } from "@/lib/diagram/types";
 import { CARDINALITIES, VISIBILITIES } from "@/lib/diagram/types";
 
 export interface InspectorProps {
-  diagram: Diagram;
+  diagram: ErDiagram;
   selectedId: string | null;
   onRenameEntity: (id: string, name: string) => void;
   onDeleteEntity: (id: string) => void;

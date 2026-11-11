@@ -11,6 +11,7 @@ import {
   addEdge,
   addField,
   addNode,
+  createDiagram,
   createField,
   deleteEdge,
   deleteField,
@@ -27,7 +28,8 @@ import {
 import { fromFile, readStorage, writeStorage } from "@/lib/diagram/persistence";
 import { defaultDiagram, sampleById } from "@/lib/diagram/samples";
 import { toSvg } from "@/lib/diagram/svg";
-import type { Diagram, DiagramField } from "@/lib/diagram/types";
+import type { Diagram, DiagramField, ErDiagram } from "@/lib/diagram/types";
+import { isErDiagram } from "@/lib/diagram/types";
 import { DiagramCanvas } from "./canvas";
 import { Inspector } from "./inspector";
 import { TextPanel } from "./text-panel";
@@ -48,7 +50,7 @@ interface Draft {
 
 const NEW_ENTITY_NAME = "Entidad";
 
-function nextEntityName(diagram: Diagram, base: string = NEW_ENTITY_NAME): string {
+function nextEntityName(diagram: ErDiagram, base: string = NEW_ENTITY_NAME): string {
   const taken = new Set(diagram.nodes.map((node) => slugify(node.name)));
   if (!taken.has(slugify(base))) return base;
   let suffix = 2;
@@ -65,7 +67,11 @@ export function DiagramEditor() {
   const [ready, setReady] = useState(false);
   const backup = useRef<Diagram | null>(null);
 
-  const diagram = history.present;
+  const present = history.present;
+  // Only the class families are editable in this version: no reader, parser or
+  // sample can produce a state diagram until T2-T6, so this branch is unreachable.
+  // Writing it out keeps the union honest instead of casting it away.
+  const diagram: ErDiagram = isErDiagram(present) ? present : createDiagram("er", present.title);
   const text = draft && draft.base === diagram ? draft.text : serialize(diagram);
   const textError = draft && draft.base === diagram ? draft.error : null;
 
@@ -78,8 +84,8 @@ export function DiagramEditor() {
   }, []);
 
   useEffect(() => {
-    if (ready) writeStorage(window.localStorage, diagram);
-  }, [diagram, ready]);
+    if (ready) writeStorage(window.localStorage, present);
+  }, [present, ready]);
 
   const apply = useCallback((next: Diagram, note: string | null = null) => {
     setHistory((current) => commit(current, next));

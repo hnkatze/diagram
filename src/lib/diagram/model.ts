@@ -1,12 +1,12 @@
 import { bounds, measureNode } from "./measure.ts";
 import type {
   Cardinality,
-  Diagram,
-  DiagramEdge,
+  ClassDiagramKind,
   DiagramField,
-  DiagramKind,
-  DiagramNode,
+  ErDiagram,
+  ErNode,
   Point,
+  RelationEdge,
   Result,
 } from "./types.ts";
 import { DEFAULT_CARDINALITY, err, isCardinality, ok } from "./types.ts";
@@ -31,7 +31,7 @@ export function uniqueId(base: string, taken: Iterable<string>): string {
   return `${base}-${suffix}`;
 }
 
-export function createDiagram(kind: DiagramKind = "er", title = ""): Diagram {
+export function createDiagram(kind: ClassDiagramKind = "er", title = ""): ErDiagram {
   return { version: 1, kind, title, nodes: [], edges: [] };
 }
 
@@ -48,26 +48,26 @@ export function createField(partial: Partial<DiagramField> = {}): DiagramField {
   };
 }
 
-export function findNode(diagram: Diagram, id: string): DiagramNode | undefined {
+export function findNode(diagram: ErDiagram, id: string): ErNode | undefined {
   return diagram.nodes.find((node) => node.id === id);
 }
 
-function nameTaken(diagram: Diagram, name: string, exceptId?: string): boolean {
+function nameTaken(diagram: ErDiagram, name: string, exceptId?: string): boolean {
   const slug = slugify(name);
   return diagram.nodes.some((node) => node.id !== exceptId && slugify(node.name) === slug);
 }
 
-export function addNode(diagram: Diagram, name: string, position: Point = { x: 0, y: 0 }): Result<Diagram> {
+export function addNode(diagram: ErDiagram, name: string, position: Point = { x: 0, y: 0 }): Result<ErDiagram> {
   const trimmed = name.trim();
   if (!trimmed) return err("Entity name is empty");
   if (nameTaken(diagram, trimmed)) return err(`Entity "${trimmed}" already exists`);
   const id = uniqueId(slugify(trimmed), diagram.nodes.map((node) => node.id));
-  const node: DiagramNode = { id, name: trimmed, x: position.x, y: position.y, fields: [] };
+  const node: ErNode = { id, name: trimmed, x: position.x, y: position.y, fields: [] };
   return ok({ ...diagram, nodes: [...diagram.nodes, node] });
 }
 
 /** Renaming rewrites the id, so every relation endpoint follows. */
-export function renameNode(diagram: Diagram, id: string, name: string): Result<Diagram> {
+export function renameNode(diagram: ErDiagram, id: string, name: string): Result<ErDiagram> {
   const target = findNode(diagram, id);
   if (!target) return err(`Unknown entity "${id}"`);
   const trimmed = name.trim();
@@ -90,7 +90,7 @@ export function renameNode(diagram: Diagram, id: string, name: string): Result<D
   return ok({ ...diagram, nodes, edges });
 }
 
-export function deleteNode(diagram: Diagram, id: string): Diagram {
+export function deleteNode(diagram: ErDiagram, id: string): ErDiagram {
   return {
     ...diagram,
     nodes: diagram.nodes.filter((node) => node.id !== id),
@@ -98,7 +98,7 @@ export function deleteNode(diagram: Diagram, id: string): Diagram {
   };
 }
 
-export function moveNode(diagram: Diagram, id: string, x: number, y: number): Diagram {
+export function moveNode(diagram: ErDiagram, id: string, x: number, y: number): ErDiagram {
   return {
     ...diagram,
     nodes: diagram.nodes.map((node) => (node.id === id ? { ...node, x, y } : node)),
@@ -106,10 +106,10 @@ export function moveNode(diagram: Diagram, id: string, x: number, y: number): Di
 }
 
 function withNodeFields(
-  diagram: Diagram,
+  diagram: ErDiagram,
   nodeId: string,
   update: (fields: DiagramField[]) => DiagramField[],
-): Diagram {
+): ErDiagram {
   if (!findNode(diagram, nodeId)) return diagram;
   return {
     ...diagram,
@@ -119,22 +119,22 @@ function withNodeFields(
   };
 }
 
-export function addField(diagram: Diagram, nodeId: string, field: DiagramField = createField()): Diagram {
+export function addField(diagram: ErDiagram, nodeId: string, field: DiagramField = createField()): ErDiagram {
   return withNodeFields(diagram, nodeId, (fields) => [...fields, field]);
 }
 
 export function updateField(
-  diagram: Diagram,
+  diagram: ErDiagram,
   nodeId: string,
   index: number,
   patch: Partial<DiagramField>,
-): Diagram {
+): ErDiagram {
   return withNodeFields(diagram, nodeId, (fields) =>
     fields.map((field, position) => (position === index ? { ...field, ...patch } : field)),
   );
 }
 
-export function deleteField(diagram: Diagram, nodeId: string, index: number): Diagram {
+export function deleteField(diagram: ErDiagram, nodeId: string, index: number): ErDiagram {
   return withNodeFields(diagram, nodeId, (fields) => fields.filter((_, position) => position !== index));
 }
 
@@ -144,11 +144,11 @@ export interface EdgeOptions {
   targetCardinality?: Cardinality;
 }
 
-export function addEdge(diagram: Diagram, source: string, target: string, options: EdgeOptions = {}): Result<Diagram> {
+export function addEdge(diagram: ErDiagram, source: string, target: string, options: EdgeOptions = {}): Result<ErDiagram> {
   if (!findNode(diagram, source)) return err(`Relation from unknown entity "${source}"`);
   if (!findNode(diagram, target)) return err(`Relation to unknown entity "${target}"`);
   const id = uniqueId(`${source}->${target}`, diagram.edges.map((edge) => edge.id));
-  const edge: DiagramEdge = {
+  const edge: RelationEdge = {
     id,
     source,
     target,
@@ -159,27 +159,27 @@ export function addEdge(diagram: Diagram, source: string, target: string, option
   return ok({ ...diagram, edges: [...diagram.edges, edge] });
 }
 
-export function updateEdge(diagram: Diagram, edgeId: string, patch: Partial<DiagramEdge>): Diagram {
+export function updateEdge(diagram: ErDiagram, edgeId: string, patch: Partial<RelationEdge>): ErDiagram {
   return {
     ...diagram,
     edges: diagram.edges.map((edge) => (edge.id === edgeId ? { ...edge, ...patch } : edge)),
   };
 }
 
-export function deleteEdge(diagram: Diagram, edgeId: string): Diagram {
+export function deleteEdge(diagram: ErDiagram, edgeId: string): ErDiagram {
   return { ...diagram, edges: diagram.edges.filter((edge) => edge.id !== edgeId) };
 }
 
-export function setKind(diagram: Diagram, kind: DiagramKind): Diagram {
+export function setKind(diagram: ErDiagram, kind: ClassDiagramKind): ErDiagram {
   return { ...diagram, kind };
 }
 
-export function setTitle(diagram: Diagram, title: string): Diagram {
+export function setTitle(diagram: ErDiagram, title: string): ErDiagram {
   return { ...diagram, title };
 }
 
 /** Structural consistency check, used before accepting parsed text or imported JSON. */
-export function validate(diagram: Diagram): Result<Diagram> {
+export function validate(diagram: ErDiagram): Result<ErDiagram> {
   const ids = new Set<string>();
   const names = new Set<string>();
 
@@ -212,9 +212,9 @@ export function validate(diagram: Diagram): Result<Diagram> {
  * exist keep their position, brand new ones are stacked below the diagram.
  */
 export function mergeStructure(
-  parsed: Diagram,
-  previous: Diagram,
-): { diagram: Diagram; addedIds: string[] } {
+  parsed: ErDiagram,
+  previous: ErDiagram,
+): { diagram: ErDiagram; addedIds: string[] } {
   const known = new Map(previous.nodes.map((node) => [node.id, node]));
   const addedIds = parsed.nodes.filter((node) => !known.has(node.id)).map((node) => node.id);
 

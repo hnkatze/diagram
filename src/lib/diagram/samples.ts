@@ -1,7 +1,7 @@
 import { parse } from "./dsl.ts";
 import { layout } from "./layout.ts";
 import { createDiagram } from "./model.ts";
-import type { Diagram, DiagramKind } from "./types.ts";
+import type { ClassDiagramKind, ErDiagram } from "./types.ts";
 
 /**
  * Bundled content (spec S11). Samples are written in the DSL, so they double as
@@ -74,7 +74,7 @@ export const UML_SAMPLE_TEXT = UML_SAMPLE;
 export interface Sample {
   id: string;
   label: string;
-  kind: DiagramKind;
+  kind: ClassDiagramKind;
   text: string;
 }
 
@@ -83,18 +83,18 @@ export const SAMPLES: readonly Sample[] = [
   { id: "uml", label: "Modelo de dominio (UML)", kind: "uml-class", text: UML_SAMPLE },
 ];
 
-function build(text: string): Diagram {
+function build(text: string): ErDiagram {
   const parsed = parse(text);
   // A broken bundled sample must never blank the editor.
   return layout(parsed.ok ? parsed.value : createDiagram("er", ""));
 }
 
-export function sampleById(id: string): Diagram {
+export function sampleById(id: string): ErDiagram {
   const sample = SAMPLES.find((candidate) => candidate.id === id);
   return build(sample ? sample.text : ER_SAMPLE);
 }
 
 /** What a first visit shows, so the app is never an empty void. */
-export function defaultDiagram(): Diagram {
+export function defaultDiagram(): ErDiagram {
   return build(ER_SAMPLE);
 }
