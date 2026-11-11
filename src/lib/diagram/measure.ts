@@ -59,6 +59,15 @@ export const USECASE_HEIGHT = 72;
 export const COMPONENT_WIDTH = 180;
 export const COMPONENT_HEIGHT = 72;
 export const INTERFACE_SIZE = 60;
+/** Keyword printed above the name of a component, guillemets included. */
+export const COMPONENT_KEYWORD = "«component»";
+/** The two small rectangles on the left edge of a component: size, and the top of each inside the box. */
+export const COMPONENT_TAB_WIDTH = 20;
+export const COMPONENT_TAB_HEIGHT = 10;
+export const COMPONENT_TAB_TOPS = [16, 40] as const;
+/** Lollipop of an interface: the circle's radius and the stem under it. The name goes below the stem. */
+export const INTERFACE_RADIUS = 12;
+export const INTERFACE_STEM = 16;
 export const OBJECT_WIDTH = 160;
 export const OBJECT_HEIGHT = 64;
 

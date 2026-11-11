@@ -6,6 +6,7 @@ import {
   STATE_HEIGHT,
   bounds,
   formatFieldLabel,
+  measureGlyph,
   measureNode,
   measureState,
 } from "./measure.ts";
@@ -16,6 +17,7 @@ import type {
   DiagramNode,
   ErDiagram,
   GlyphDiagram,
+  GlyphNode,
   StateDiagram,
   RelationKind,
   StateNode,
@@ -608,4 +610,89 @@ test("a use case diagram draws a stick figure and an oval with stable classes", 
   assert.match(svg, /Ana &lt;&amp;&gt;/);
   assert.match(svg, /marker-directed-association/);
   assert.equal(toSvg(diagram), svg);
+});
+
+const glyphDiagram = (kind: GlyphDiagram["kind"], nodes: GlyphNode[], edges: GlyphDiagram["edges"] = []): GlyphDiagram => ({
+  version: 1,
+  kind,
+  title: "",
+  nodes,
+  edges,
+});
+
+const componentDiagram = (): GlyphDiagram =>
+  glyphDiagram("component", [
+    { id: "srv", name: "Servicio", x: 0, y: 0, role: "component", parentId: null },
+    { id: "pago", name: "Pago", x: 300, y: 0, role: "interface", parentId: null },
+  ]);
+
+test("a component draws a box with the «component» keyword above the name and two tabs", () => {
+  const svg = toSvg(componentDiagram());
+  assert.match(svg, /class="glyph-component"/);
+  assert.match(svg, /«component»/);
+  assert.match(svg, /Servicio/);
+  assert.equal((svg.match(/class="component-tab"/g) ?? []).length, 2);
+  const keywordY = Number(svg.match(/class="n" [^>]*?y="([\d.]+)"[^>]*>«component»/)?.[1] ?? svg.match(/y="([\d.]+)"[^>]*>«component»/)?.[1]);
+  const nameY = Number(svg.match(/y="([\d.]+)"[^>]*>Servicio</)?.[1]);
+  assert.ok(keywordY < nameY, "the keyword sits above the name");
+});
+
+test("an interface draws a lollipop: a circle on a stem", () => {
+  const svg = toSvg(componentDiagram());
+  const group = svg.match(/<g class="glyph-interface">.*?<\/g>/)?.[0] ?? "";
+  assert.match(group, /<circle /);
+  assert.match(group, /<line /);
+  assert.match(group, />Pago</);
+});
+
+test("the component box and the interface circle come from measureGlyph", () => {
+  const diagram = componentDiagram();
+  const [srv, pago] = diagram.nodes;
+  const box = measureGlyph(srv);
+  const lollipop = measureGlyph(pago);
+  assert.ok(box.width > 0 && box.height > 0);
+  assert.ok(lollipop.width > 0 && lollipop.height > 0);
+
+  const svg = toSvg(diagram);
+  const rect = svg.match(/<rect class="component-box"[^>]*>/)?.[0] ?? "";
+  assert.match(rect, new RegExp(`width="${box.width}"`));
+  assert.match(rect, new RegExp(`height="${box.height}"`));
+
+  const group = svg.match(/<g class="glyph-interface">.*?<\/g>/)?.[0] ?? "";
+  const radius = Number(group.match(/<circle [^>]*r="([\d.]+)"/)?.[1]);
+  assert.ok(radius * 2 <= lollipop.width && radius * 2 < lollipop.height);
+  // The whole lollipop fits in its measured box: circle plus stem.
+  const stemEnd = Number(group.match(/<line [^>]*y2="([\d.]+)"/)?.[1]);
+  const top = Number(group.match(/<circle [^>]*cy="([\d.]+)"/)?.[1]) - radius;
+  assert.ok(stemEnd - top <= lollipop.height);
+});
+
+const communicationDiagram = (label = ""): GlyphDiagram =>
+  glyphDiagram(
+    "communication",
+    [
+      { id: "p1", name: "pedido1 : Pedido", x: 0, y: 0, role: "object", parentId: null },
+      { id: "c1", name: "caja1 : Caja", x: 400, y: 0, role: "object", parentId: null },
+    ],
+    [{ id: "e", source: "p1", target: "c1", relation: "association", label }],
+  );
+
+test("an object draws a box with an underlined label", () => {
+  const svg = toSvg(communicationDiagram());
+  const group = svg.match(/<g class="glyph-object">.*?<\/g>/)?.[0] ?? "";
+  assert.match(group, /<rect /);
+  assert.match(group, /<text [^>]*text-decoration="underline"[^>]*>pedido1 : Pedido</);
+  assert.doesNotMatch(svg, /class="marker /);
+});
+
+test("a message label renders escaped, in the middle of the link", () => {
+  const svg = toSvg(communicationDiagram(`1: pagar "<&>"`));
+  assert.match(svg, />1: pagar &quot;&lt;&amp;&gt;&quot;</);
+  assert.doesNotMatch(svg, /pagar "<&>"/);
+
+  const line = svg.match(/<line x1="([\d.]+)" y1="[\d.]+" x2="([\d.]+)"/);
+  const x1 = Number(line?.[1]);
+  const x2 = Number(line?.[2]);
+  const labelX = Number(svg.match(/<text class="l" x="([\d.]+)"/)?.[1]);
+  assert.equal(labelX, (x1 + x2) / 2);
 });

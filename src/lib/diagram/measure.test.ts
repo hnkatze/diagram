@@ -2,8 +2,13 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  measureGlyph,
   measureNode,
   measureState,
+  COMPONENT_TAB_HEIGHT,
+  COMPONENT_TAB_TOPS,
+  INTERFACE_RADIUS,
+  INTERFACE_STEM,
   formatFieldLabel,
   bounds,
   estimateTextWidth,
@@ -25,6 +30,7 @@ import {
   STATE_NAME_FONT_SIZE,
   STATE_PADDING_X,
 } from "./measure.ts";
+import type { GlyphNode } from "./types.ts";
 import type { DiagramField, DiagramNode, ErDiagram, StateDiagram, StateNode } from "./types.ts";
 
 const field = (over: Partial<DiagramField> = {}): DiagramField => ({
@@ -356,4 +362,14 @@ test("a package and a region holding the same child get the same rectangle", () 
     const container = pkg("box", { role });
     assert.deepEqual(containerBox(classDiagram([container, child]), container), expected);
   }
+});
+
+test("a component box and an interface lollipop both have a size, and the lollipop fits in it", () => {
+  const glyph = (role: GlyphNode["role"]): GlyphNode => ({ id: role, name: "X", x: 0, y: 0, role, parentId: null });
+  const component = measureGlyph(glyph("component"));
+  const lollipop = measureGlyph(glyph("interface"));
+  assert.ok(component.width > 0 && component.height > 0);
+  assert.ok(lollipop.width > 0 && lollipop.height > 0);
+  assert.ok(INTERFACE_RADIUS * 2 + INTERFACE_STEM < lollipop.height, "circle and stem leave room for the name");
+  for (const top of COMPONENT_TAB_TOPS) assert.ok(top + COMPONENT_TAB_HEIGHT <= component.height);
 });

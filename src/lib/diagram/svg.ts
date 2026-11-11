@@ -22,6 +22,12 @@ import {
   markerEnd,
   measureBox,
   measureState,
+  COMPONENT_KEYWORD,
+  COMPONENT_TAB_HEIGHT,
+  COMPONENT_TAB_TOPS,
+  COMPONENT_TAB_WIDTH,
+  INTERFACE_RADIUS,
+  INTERFACE_STEM,
 } from "./measure.ts";
 import type { BoxNode, EdgeMarker } from "./measure.ts";
 import { isStateDiagram } from "./types.ts";
@@ -429,7 +435,44 @@ function renderGlyph(node: GlyphNode, box: Rect, palette: Palette): string {
     ].join("");
   }
 
+  if (node.role === "component") {
+    const tabX = round(box.x - COMPONENT_TAB_WIDTH / 2);
+    return [
+      `<g class="glyph-component">`,
+      `<rect class="component-box" x="${box.x}" y="${box.y}" width="${box.width}" height="${box.height}" fill="${palette.header}" stroke="${palette.stroke}" stroke-width="1.5"/>`,
+      ...COMPONENT_TAB_TOPS.map(
+        (top) =>
+          `<rect class="component-tab" x="${tabX}" y="${round(box.y + top)}" width="${COMPONENT_TAB_WIDTH}" height="${COMPONENT_TAB_HEIGHT}" fill="${palette.header}" stroke="${palette.stroke}" stroke-width="1.5"/>`,
+      ),
+      `<text class="f" x="${centerX}" y="${round(box.y + box.height / 2 - 11)}" text-anchor="middle">${COMPONENT_KEYWORD}</text>`,
+      label(box.y + box.height / 2 + 7),
+      `</g>`,
+    ].join("");
+  }
+
+  if (node.role === "interface") {
+    const circleY = round(box.y + INTERFACE_RADIUS);
+    const stemTop = round(box.y + INTERFACE_RADIUS * 2);
+    return [
+      `<g class="glyph-interface">`,
+      `<circle cx="${centerX}" cy="${circleY}" r="${INTERFACE_RADIUS}" fill="${palette.header}" stroke="${palette.stroke}" stroke-width="1.5"/>`,
+      `<line x1="${centerX}" y1="${stemTop}" x2="${centerX}" y2="${round(stemTop + INTERFACE_STEM)}" ${stroke}/>`,
+      label(box.y + box.height - 7),
+      `</g>`,
+    ].join("");
+  }
+
   const centerY = box.y + box.height / 2;
+  if (node.role === "object") {
+    // The underline is what makes the box an instance, so it is an attribute of the text, not CSS.
+    return [
+      `<g class="glyph-object">`,
+      `<rect x="${box.x}" y="${box.y}" width="${box.width}" height="${box.height}" rx="${BOX_RADIUS}" fill="${palette.header}" stroke="${palette.stroke}" stroke-width="1.5"/>`,
+      `<text class="n" x="${centerX}" y="${round(centerY)}" text-anchor="middle" text-decoration="underline">${escapeXml(node.name)}</text>`,
+      `</g>`,
+    ].join("");
+  }
+
   if (node.role === "usecase") {
     return [
       `<g class="glyph-usecase">`,

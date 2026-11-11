@@ -15,6 +15,13 @@ import {
 } from "@xyflow/react";
 
 import {
+  COMPONENT_KEYWORD,
+  COMPONENT_TAB_HEIGHT,
+  COMPONENT_TAB_TOPS,
+  COMPONENT_TAB_WIDTH,
+  INTERFACE_RADIUS,
+  INTERFACE_SIZE,
+  INTERFACE_STEM,
   CONTAINER_INSET,
   CONTAINER_TITLE_HEIGHT,
   NODE_HEADER_HEIGHT,
@@ -294,6 +301,38 @@ function GlyphNodeView({ data, selected }: NodeProps<GlyphNodeType>) {
             <path d="M 20 18 L 20 28 M 6 19 L 34 19 M 20 28 L 8 42 M 20 28 L 32 42" />
           </svg>
           <span className="truncate text-xs font-semibold text-card-foreground">{node.name}</span>
+        </div>
+      ) : node.role === "component" ? (
+        <div
+          className={`glyph-component relative flex h-full w-full flex-col items-center justify-center border-[1.5px] bg-muted ${
+            selected ? "border-foreground" : "border-border"
+          }`}
+        >
+          {COMPONENT_TAB_TOPS.map((top) => (
+            <span
+              key={top}
+              className={`absolute border-[1.5px] bg-muted ${selected ? "border-foreground" : "border-border"}`}
+              style={{ left: -COMPONENT_TAB_WIDTH / 2, top, width: COMPONENT_TAB_WIDTH, height: COMPONENT_TAB_HEIGHT }}
+            />
+          ))}
+          <span className="text-xs text-muted-foreground">{COMPONENT_KEYWORD}</span>
+          <span className="max-w-full truncate px-4 text-sm font-semibold text-card-foreground">{node.name}</span>
+        </div>
+      ) : node.role === "interface" ? (
+        <div className="glyph-interface flex h-full w-full flex-col items-center">
+          <svg width={INTERFACE_SIZE} height={INTERFACE_RADIUS * 2 + INTERFACE_STEM} fill="none" strokeWidth={1.5} strokeLinecap="round" className={`${stroke} overflow-visible`}>
+            <circle cx={INTERFACE_SIZE / 2} cy={INTERFACE_RADIUS} r={INTERFACE_RADIUS} className="fill-muted" />
+            <line x1={INTERFACE_SIZE / 2} y1={INTERFACE_RADIUS * 2} x2={INTERFACE_SIZE / 2} y2={INTERFACE_RADIUS * 2 + INTERFACE_STEM} />
+          </svg>
+          <span className="max-w-full truncate text-xs font-semibold text-card-foreground">{node.name}</span>
+        </div>
+      ) : node.role === "object" ? (
+        <div
+          className={`glyph-object flex h-full w-full items-center justify-center rounded-lg border-[1.5px] bg-muted ${
+            selected ? "border-foreground" : "border-border"
+          }`}
+        >
+          <span className="truncate px-4 text-sm font-semibold text-card-foreground underline">{node.name}</span>
         </div>
       ) : (
         <div
