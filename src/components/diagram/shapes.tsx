@@ -15,6 +15,8 @@ import {
 } from "@xyflow/react";
 
 import {
+  CONTAINER_INSET,
+  CONTAINER_TITLE_HEIGHT,
   NODE_HEADER_HEIGHT,
   NODE_PADDING_X,
   NODE_ROW_HEIGHT,
@@ -22,6 +24,7 @@ import {
   PSEUDO_STATE_SIZE,
   borderPoint,
   cardinalityLabel,
+  containerTabPath,
   cardinalityPoints,
   edgeMarker,
   formatFieldLabel,
@@ -97,6 +100,38 @@ function EntityNodeView({ data }: NodeProps<EntityNodeType>) {
 }
 
 export const EntityNode = memo(EntityNodeView);
+
+export interface ContainerNodeData extends Record<string, unknown> {
+  node: DiagramNode;
+}
+
+export type ContainerNodeType = Node<ContainerNodeData, "container">;
+
+/** A titled rectangle with no handles and no fields; its size comes from `containerBox`. */
+function ContainerShapeView({ id, data }: NodeProps<ContainerNodeType>) {
+  const internal = useInternalNode(id);
+  const width = internal?.measured?.width ?? internal?.width;
+  // The tab comes from the same function as the exported image.
+  const tab = width ? containerTabPath(data.node, { x: 0, y: 0, width, height: CONTAINER_TITLE_HEIGHT }) : null;
+
+  return (
+    <div className="relative h-full w-full rounded-lg border-[1.5px] border-border bg-muted/40">
+      {tab ? (
+        <svg className="pointer-events-none absolute -left-[1.5px] -top-[1.5px] overflow-visible" width={width} height={CONTAINER_TITLE_HEIGHT}>
+          <path d={tab} strokeWidth={1.5} className="fill-muted stroke-border" />
+        </svg>
+      ) : null}
+      <div
+        className="relative flex items-center truncate text-xs font-semibold text-muted-foreground"
+        style={{ height: CONTAINER_TITLE_HEIGHT, paddingInline: CONTAINER_INSET / 2 }}
+      >
+        {data.node.name}
+      </div>
+    </div>
+  );
+}
+
+export const ContainerShape = memo(ContainerShapeView);
 
 export interface RelationEdgeData extends Record<string, unknown> {
   edge: DiagramEdge;

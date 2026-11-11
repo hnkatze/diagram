@@ -24,8 +24,10 @@ const good = (): Diagram => ({
       x: 40,
       y: 80,
       fields: [{ name: "id", type: "int", visibility: "+", pk: true, fk: false, uk: false, nullable: false }],
+      role: "entity",
+      parentId: null,
     },
-    { id: "pedido", name: "Pedido", x: 320, y: 80, fields: [] },
+    { id: "pedido", name: "Pedido", x: 320, y: 80, fields: [], role: "entity", parentId: null },
   ],
   edges: [
     {
@@ -201,7 +203,7 @@ test("an old er file still imports", () => {
       version: FILE_VERSION,
       kind: "er",
       title: "Viejo",
-      nodes: [{ id: "cliente", name: "Cliente", x: 12, y: 24, fields: [] }],
+      nodes: [{ id: "cliente", name: "Cliente", x: 12, y: 24, fields: [], role: "entity", parentId: null }],
       edges: [],
     },
   });
@@ -326,4 +328,36 @@ test("a file with a single cardinality on a relation is refused and names the re
   assert.equal(restored.ok, false);
   if (restored.ok) return;
   assert.ok(restored.error.includes(`"${id}"`), restored.error);
+});
+
+const rawFile = (node: Record<string, unknown>, extra: Record<string, unknown>[] = []): string =>
+  JSON.stringify({
+    version: 1,
+    diagram: { version: 1, kind: "er", title: "T", nodes: [node, ...extra], edges: [] },
+  });
+
+test("a file without role or parentId imports as top-level entities", () => {
+  const result = fromFile(rawFile({ id: "a", name: "A", x: 1, y: 2, fields: [] }));
+  assert.equal(result.ok, true);
+  if (!result.ok || isStateDiagram(result.value)) return;
+  assert.equal(result.value.nodes[0].role, "entity");
+  assert.equal(result.value.nodes[0].parentId, null);
+});
+
+test("an unknown role is refused naming the value", () => {
+  const result = fromFile(rawFile({ id: "a", name: "A", x: 1, y: 2, fields: [], role: "swimlane" }));
+  assert.equal(result.ok, false);
+  if (!result.ok) {
+    assert.match(result.error, /"a"/);
+    assert.match(result.error, /swimlane/);
+  }
+});
+
+test("a parentId that resolves to nothing is refused naming the value", () => {
+  const result = fromFile(rawFile({ id: "a", name: "A", x: 1, y: 2, fields: [], parentId: "ghost" }));
+  assert.equal(result.ok, false);
+  if (!result.ok) {
+    assert.match(result.error, /"a"/);
+    assert.match(result.error, /ghost/);
+  }
 });

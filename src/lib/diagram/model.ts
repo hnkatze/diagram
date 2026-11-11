@@ -10,7 +10,7 @@ import type {
   RelationKind,
   Result,
 } from "./types.ts";
-import { DEFAULT_CARDINALITY, err, isCardinality, isRelationKind, ok } from "./types.ts";
+import { DEFAULT_CARDINALITY, err, isCardinality, isContainerRole, isRelationKind, ok } from "./types.ts";
 
 /** Lowercase, dashed, accent-free id derived from an entity name. */
 export function slugify(name: string): string {
@@ -63,7 +63,7 @@ export function addNode(diagram: ErDiagram, name: string, position: Point = { x:
   if (!trimmed) return err("Entity name is empty");
   if (nameTaken(diagram, trimmed)) return err(`Entity "${trimmed}" already exists`);
   const id = uniqueId(slugify(trimmed), diagram.nodes.map((node) => node.id));
-  const node: ErNode = { id, name: trimmed, x: position.x, y: position.y, fields: [] };
+  const node: ErNode = { id, name: trimmed, x: position.x, y: position.y, fields: [], role: "entity", parentId: null };
   return ok({ ...diagram, nodes: [...diagram.nodes, node] });
 }
 
@@ -213,7 +213,8 @@ export function validate(diagram: ErDiagram): Result<ErDiagram> {
   for (const node of diagram.nodes) {
     if (!node.name.trim()) return err(`Entity "${node.id}" has an empty name`);
     if (ids.has(node.id)) return err(`Duplicated entity id "${node.id}"`);
-    const slug = slugify(node.name);
+    // A container may share a name with an entity; its id stays distinct.
+    const slug = `${isContainerRole(node.role) ? "container" : "entity"}:${slugify(node.name)}`;
     if (names.has(slug)) return err(`Entity "${node.name}" is duplicated`);
     ids.add(node.id);
     names.add(slug);
@@ -223,6 +224,18 @@ export function validate(diagram: ErDiagram): Result<ErDiagram> {
     }
   }
 
+  const containers = new Map(diagram.nodes.filter((node) => isContainerRole(node.role)).map((node) => [node.id, node]));
+  for (const node of diagram.nodes) {
+    if (node.parentId === null) continue;
+    if (!containers.has(node.parentId)) {
+      return err(`Node "${node.id}" has parentId "${node.parentId}", which is not a container`);
+    }
+    if (isContainerRole(node.role)) {
+      return err(`Container "${node.id}" cannot sit inside container "${node.parentId}"`);
+    }
+  }
+
+  const entityIds = new Set(diagram.nodes.filter((node) => !isContainerRole(node.role)).map((node) => node.id));
   for (const edge of diagram.edges) {
     if (!isRelationKind(edge.relation)) {
       return err(`Relation "${edge.id}" has an unknown relation "${String(edge.relation)}"`);
@@ -234,8 +247,8 @@ export function validate(diagram: ErDiagram): Result<ErDiagram> {
     if ((edge.sourceCardinality === null) !== (edge.targetCardinality === null)) {
       return err(`Relation "${edge.id}" states a cardinality on only one end`);
     }
-    if (!ids.has(edge.source)) return err(`Relation "${edge.id}" points to unknown entity "${edge.source}"`);
-    if (!ids.has(edge.target)) return err(`Relation "${edge.id}" points to unknown entity "${edge.target}"`);
+    if (!entityIds.has(edge.source)) return err(`Relation "${edge.id}" points to unknown entity "${edge.source}"`);
+    if (!entityIds.has(edge.target)) return err(`Relation "${edge.id}" points to unknown entity "${edge.target}"`);
   }
 
   return ok(diagram);

@@ -466,3 +466,91 @@ test("an association with one cardinality cannot be written, and the stable form
   assert.deepEqual(mustParse(first), diagram);
   assert.equal(serialize(mustParse(first)), first);
 });
+
+const CONTAINERS = `diagram uml "Ventas"
+
+package Ventas {
+  entity Pedido {
+    id int pk
+    total decimal
+  }
+  entity Item {
+    id int pk
+  }
+}
+
+package Logistica {
+  entity Envio {
+    id int pk
+  }
+}
+
+Pedido 1..* -- 1 Item : "contiene"
+`;
+
+test("an entity inside a package belongs to it", () => {
+  const diagram = mustParse("package X { }\n".replace("{ }", "{\n  entity A {\n  }\n}"));
+  const container = diagram.nodes.find((node) => node.name === "X");
+  const child = diagram.nodes.find((node) => node.name === "A");
+  assert.equal(container?.role, "package");
+  assert.equal(container?.parentId, null);
+  assert.deepEqual(container?.fields, []);
+  assert.equal(child?.role, "entity");
+  assert.equal(child?.parentId, container?.id);
+});
+
+test("a region opens a container of role region", () => {
+  const diagram = mustParse("region X {\n  entity A {\n  }\n}\n");
+  assert.equal(diagram.nodes.find((node) => node.name === "X")?.role, "region");
+  assert.equal(diagram.nodes.find((node) => node.name === "A")?.parentId, "x");
+});
+
+test("containers round trip with two-space indentation", () => {
+  const diagram = mustParse(CONTAINERS);
+  const text = serialize(diagram);
+  assert.match(text, /^package Ventas \{$/m);
+  assert.match(text, /^ {2}entity Pedido \{$/m);
+  assert.match(text, /^ {4}[+] id int pk$/m);
+  const again = mustParse(text);
+  const shape = (d: ErDiagram) => d.nodes.map((node) => [node.id, node.role, node.parentId]);
+  assert.deepEqual(shape(again), shape(diagram));
+  assert.deepEqual(again.nodes.map((node) => node.id), ["ventas", "pedido", "item", "logistica", "envio"]);
+  assert.deepEqual(again.edges, diagram.edges);
+  assert.equal(again.edges.length, 1);
+  assert.equal(serialize(again), text);
+});
+
+test("a container inside a container names both", () => {
+  const error = mustFail("package A {\n  package B {\n  }\n}\n");
+  assert.match(error, /^Line 2:/);
+  assert.match(error, /"A"/);
+  assert.match(error, /"B"/);
+});
+
+test("a field line directly inside a container names the container", () => {
+  const error = mustFail("package Ventas {\n  id int pk\n}\n");
+  assert.match(error, /^Line 2:/);
+  assert.match(error, /"Ventas"/);
+});
+
+test("a relation resolves entities that live in two different containers", () => {
+  const diagram = mustParse(`package P {
+  entity A {
+  }
+}
+package Q {
+  entity B {
+  }
+}
+A 1 -- 1..* B
+`);
+  assert.equal(diagram.edges.length, 1);
+  assert.equal(diagram.edges[0].source, "a");
+  assert.equal(diagram.edges[0].target, "b");
+});
+
+test("a container and an entity with the same name get distinct ids; unclosed blocks name the block", () => {
+  const diagram = mustParse("package A {\n  entity A {\n  }\n}\n");
+  assert.deepEqual(diagram.nodes.map((node) => node.id), ["a", "a-2"]);
+  assert.match(mustFail("package Ventas {\n  entity A {\n  }\n"), /package "Ventas" is never closed/);
+});

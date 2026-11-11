@@ -189,7 +189,7 @@ test("mergeStructure keeps known positions and stacks the new entities", () => {
     nodes: [
       { ...previous.nodes[0], x: 0, y: 0 },
       { ...previous.nodes[1], x: 0, y: 0 },
-      { id: "producto", name: "Producto", x: 0, y: 0, fields: [] },
+      { id: "producto", name: "Producto", x: 0, y: 0, fields: [], role: "entity", parentId: null },
     ],
   };
 

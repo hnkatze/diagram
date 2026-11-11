@@ -6,6 +6,7 @@ import type {
   DiagramField,
   ErDiagram,
   ErNode,
+  NodeRole,
   RelationEdge,
   RelationKind,
   Result,
@@ -15,7 +16,7 @@ import type {
   Transition,
   Visibility,
 } from "./types.ts";
-import { err, isStateDiagram, isVisibility, normalizeCardinality, ok } from "./types.ts";
+import { err, isContainerRole, isStateDiagram, isVisibility, normalizeCardinality, ok } from "./types.ts";
 
 /**
  * Text projection of the diagram model (spec S5-S7).
@@ -44,11 +45,17 @@ interface Token {
   quoted: boolean;
 }
 
-interface EntityBlock {
+/** An open `entity`, `package` or `region` block. Only entities hold fields. */
+interface Block {
+  role: NodeRole;
   name: string;
   line: number;
   fields: DiagramField[];
+  parent: Block | null;
 }
+
+/** The keyword that opens each kind of block. */
+const BLOCK_KEYWORDS: Record<string, NodeRole> = { entity: "entity", package: "package", region: "region" };
 
 interface StateBlock {
   name: string;
@@ -177,12 +184,31 @@ const RELATION_ARROWS: Record<RelationKind, string> = {
   dependency: "..>",
 };
 
+/**
+ * Reads a block opening such as `package Ventas {`. Returns `null` when the line
+ * does not start with a block keyword, so the caller decides what else it is.
+ */
+function openBlock(trimmed: string, line: number, parent: Block | null): Block | null {
+  const tokens = tokenize(trimmed, line);
+  const head = tokens[0].quoted ? "" : tokens[0].value.toLowerCase();
+  if (!Object.hasOwn(BLOCK_KEYWORDS, head)) return null;
+  const role = BLOCK_KEYWORDS[head];
+  const nameToken = tokens[1];
+  if (!nameToken) throw new DslError(line, `expected ${role === "entity" ? "an entity" : `a ${role}`} name after "${head}"`);
+  const brace = tokens[2];
+  if (!brace || brace.quoted || brace.value !== "{") {
+    throw new DslError(line, `expected "{" after the ${role} name`);
+  }
+  if (tokens.length > 3) throw new DslError(line, 'unexpected text after "{"');
+  return { role, name: nameToken.value, line, fields: [], parent };
+}
+
 function parseErDiagram(text: string): ErDiagram {
   const lines = text.split(/\r?\n/);
   let kind: ClassDiagramKind = "er";
   let title = "";
-  let open: EntityBlock | null = null;
-  const blocks: EntityBlock[] = [];
+  const stack: Block[] = [];
+  const blocks: Block[] = [];
   const relations: { line: number; tokens: Token[] }[] = [];
 
   for (let index = 0; index < lines.length; index += 1) {
@@ -190,15 +216,30 @@ function parseErDiagram(text: string): ErDiagram {
     const trimmed = lines[index].trim();
     if (trimmed === "") continue;
 
+    const open = stack.length > 0 ? stack[stack.length - 1] : null;
     if (open) {
       if (trimmed === "}") {
-        blocks.push(open);
-        open = null;
+        stack.pop();
         continue;
       }
       // Inside an entity `#` is the protected-visibility glyph, so only `//` comments out.
       if (trimmed.startsWith("//")) continue;
-      open.fields.push(parseField(trimmed, line));
+      if (open.role === "entity") {
+        open.fields.push(parseField(trimmed, line));
+        continue;
+      }
+      const opened = openBlock(trimmed, line, open);
+      if (!opened) {
+        throw new DslError(line, `"${trimmed}" is not allowed directly inside ${open.role} "${open.name}"`);
+      }
+      if (opened.role !== "entity") {
+        throw new DslError(
+          line,
+          `${opened.role} "${opened.name}" cannot sit inside ${open.role} "${open.name}": a container may not contain another container`,
+        );
+      }
+      blocks.push(opened);
+      stack.push(opened);
       continue;
     }
 
@@ -221,38 +262,51 @@ function parseErDiagram(text: string): ErDiagram {
       continue;
     }
 
-    if (head === "entity") {
-      const nameToken = tokens[1];
-      if (!nameToken) throw new DslError(line, 'expected an entity name after "entity"');
-      const brace = tokens[2];
-      if (!brace || brace.quoted || brace.value !== "{") {
-        throw new DslError(line, 'expected "{" after the entity name');
+    if (head in BLOCK_KEYWORDS) {
+      const opened = openBlock(trimmed, line, null);
+      if (opened) {
+        blocks.push(opened);
+        stack.push(opened);
+        continue;
       }
-      if (tokens.length > 3) throw new DslError(line, 'unexpected text after "{"');
-      open = { name: nameToken.value, line, fields: [] };
-      continue;
     }
 
     relations.push({ line, tokens });
   }
 
-  if (open) throw new DslError(open.line, `entity "${open.name}" is never closed`);
+  const unclosed = stack.length > 0 ? stack[stack.length - 1] : null;
+  if (unclosed) throw new DslError(unclosed.line, `${unclosed.role} "${unclosed.name}" is never closed`);
 
   const takenIds: string[] = [];
   const takenSlugs = new Set<string>();
   const nodes: ErNode[] = [];
   const byReference = new Map<string, ErNode>();
+  const nodeOfBlock = new Map<Block, ErNode>();
 
   for (const block of blocks) {
     const name = block.name.trim();
-    if (name === "") throw new DslError(block.line, "an entity needs a name");
+    if (name === "") throw new DslError(block.line, `${block.role === "entity" ? "an entity" : `a ${block.role}`} needs a name`);
     const slug = slugify(name);
-    if (takenSlugs.has(slug)) throw new DslError(block.line, `entity "${name}" already exists`);
-    takenSlugs.add(slug);
+    // A container may share its name with an entity: the ids stay distinct, the names are separate.
+    const slugKey = `${isContainerRole(block.role) ? "container" : "entity"}:${slug}`;
+    if (takenSlugs.has(slugKey)) throw new DslError(block.line, `${block.role} "${name}" already exists`);
+    takenSlugs.add(slugKey);
     const id = uniqueId(slug, takenIds);
     takenIds.push(id);
-    const node: ErNode = { id, name, x: 0, y: 0, fields: block.fields };
+    const parent = block.parent ? nodeOfBlock.get(block.parent) : undefined;
+    const node: ErNode = {
+      id,
+      name,
+      x: 0,
+      y: 0,
+      fields: block.fields,
+      role: block.role,
+      parentId: parent ? parent.id : null,
+    };
     nodes.push(node);
+    nodeOfBlock.set(block, node);
+    // Relations connect entities, so only entities are reachable by name.
+    if (block.role !== "entity") continue;
     byReference.set(name, node);
     byReference.set(name.toLowerCase(), node);
     byReference.set(slug, node);
@@ -529,9 +583,28 @@ function serializeEr(diagram: ErDiagram): string {
     `diagram ${diagram.kind === "uml-class" ? "uml" : "er"} "${escapeQuoted(diagram.title)}"`,
   ];
 
-  for (const node of diagram.nodes) {
+  const containerIds = new Set(diagram.nodes.filter((node) => isContainerRole(node.role)).map((node) => node.id));
+  const indent = (text: string, depth: number): string =>
+    text
+      .split("\n")
+      .map((row) => (row === "" ? row : `${"  ".repeat(depth)}${row}`))
+      .join("\n");
+  const entityBlock = (node: ErNode): string => {
     const rows = node.fields.map((field) => `  ${serializeField(field, diagram.kind)}`);
-    blocks.push(`entity ${formatBareName(node.name)} {\n${rows.join("\n")}\n}`);
+    return `entity ${formatBareName(node.name)} {\n${rows.join("\n")}\n}`;
+  };
+
+  for (const node of diagram.nodes) {
+    if (node.parentId !== null && containerIds.has(node.parentId)) continue;
+    if (!isContainerRole(node.role)) {
+      blocks.push(entityBlock(node));
+      continue;
+    }
+    const children = diagram.nodes
+      .filter((child) => child.parentId === node.id)
+      .map((child) => indent(entityBlock(child), 1));
+    const rows = children.length > 0 ? `${children.join("\n")}\n` : "";
+    blocks.push(`${node.role} ${formatBareName(node.name)} {\n${rows}}`);
   }
 
   const nameOf = (id: string): string => diagram.nodes.find((node) => node.id === id)?.name ?? id;

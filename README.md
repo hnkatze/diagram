@@ -88,6 +88,41 @@ Usuario 1..* -- 0..1 Pedido : "realiza"
 - `//` comments anywhere; `#` only outside an entity block, where `#` is the protected
   glyph. Blank lines are ignored. Quoted names and labels support `\"` escapes.
 
+### Containers
+
+`package <Name> { ... }` and `region <Name> { ... }` open a container: a titled rectangle that
+holds other nodes. A `package` carries a folder tab; a `region` is a plain titled rectangle.
+Entities declared inside the block belong to that container.
+
+```
+diagram uml "Ventas"
+
+package Ventas {
+  entity Pedido {
+    id int pk
+    total decimal
+  }
+  entity Item {
+    id int pk
+  }
+}
+
+region Logistica {
+  entity Envio {
+    id int pk
+  }
+}
+
+Pedido 1 -- 0..* Item
+Pedido 1 -- 0..1 Envio : "se despacha"
+```
+
+- Containers hold nodes but do not nest: a container inside another container is refused.
+- The editor writes the text back with two spaces per level; when you write it, indentation is
+  not significant.
+- Relation lines stay outside the blocks and can connect entities that live in different
+  containers, as `Pedido` and `Envio` do above.
+
 ### State diagrams
 
 `diagram state "..."` swaps entities and relations for states and transitions. Same panel,
@@ -143,6 +178,7 @@ format. The app shell is always dark, so this only decides what the delivered fi
 The file name is the slug of the diagram title (`untitled` when empty). The image has a solid
 background, the title, every entity with its fields, and every relation with label and cardinalities.
 The relation markers (triangles, diamonds, open arrows and dashed lines) appear in the exported image too.
+Containers are drawn as well, each with its title, and the light theme keeps them.
 
 `toSvg` paints the dark palette by default, so the exported file matches the screen;
 `toSvg(diagram, { theme: "light" })` is the light version, and an explicit `background` option still

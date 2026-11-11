@@ -8,6 +8,12 @@ import {
   bounds,
   estimateTextWidth,
   borderPoint,
+  containerBox,
+  containerTabPath,
+  isContainer,
+  CONTAINER_INSET,
+  CONTAINER_TITLE_HEIGHT,
+  CONTAINER_TITLE_CHAR_WIDTH,
   cardinalityLabel,
   edgeMarker,
   markerEnd,
@@ -19,7 +25,7 @@ import {
   STATE_NAME_FONT_SIZE,
   STATE_PADDING_X,
 } from "./measure.ts";
-import type { DiagramField, DiagramNode, StateDiagram, StateNode } from "./types.ts";
+import type { DiagramField, DiagramNode, ErDiagram, StateDiagram, StateNode } from "./types.ts";
 
 const field = (over: Partial<DiagramField> = {}): DiagramField => ({
   name: "id",
@@ -38,6 +44,8 @@ const node = (over: Partial<DiagramNode> = {}): DiagramNode => ({
   x: 0,
   y: 0,
   fields: [field()],
+  role: "entity",
+  parentId: null,
   ...over,
 });
 
@@ -232,4 +240,120 @@ test("relationIsDashed is true only for realization and dependency", () => {
 test("cardinalityLabel renders nothing for a cardinality that was not stated", () => {
   assert.equal(cardinalityLabel(null), "");
   assert.equal(cardinalityLabel("0..*"), "0..*");
+});
+
+const classDiagram = (nodes: DiagramNode[]): ErDiagram => ({ version: 1, kind: "er", title: "", nodes, edges: [] });
+const pkg = (id: string, over: Partial<DiagramNode> = {}): DiagramNode =>
+  node({ id, name: id, role: "package", fields: [], ...over });
+
+test("containerBox wraps the children bounding box with the inset and a title strip", () => {
+  const first = node({ id: "a", name: "A", x: 100, y: 200, parentId: "box" });
+  const second = node({ id: "b", name: "B", x: 400, y: 260, parentId: "box" });
+  const outside = node({ id: "c", name: "C", x: -900, y: -900 });
+  const container = pkg("box");
+  const diagram = classDiagram([container, first, second, outside]);
+
+  const one = measureNode(first, "er");
+  const two = measureNode(second, "er");
+  const right = Math.max(first.x + one.width, second.x + two.width);
+  const bottom = Math.max(first.y + one.height, second.y + two.height);
+
+  assert.deepEqual(containerBox(diagram, container), {
+    x: 100 - CONTAINER_INSET,
+    y: 200 - CONTAINER_INSET - CONTAINER_TITLE_HEIGHT,
+    width: right - 100 + CONTAINER_INSET * 2,
+    height: bottom - 200 + CONTAINER_INSET * 2 + CONTAINER_TITLE_HEIGHT,
+  });
+});
+
+test("an empty container gets the deterministic minimum rectangle", () => {
+  const container = pkg("vacio", { name: "Vacio", x: 10, y: 20 });
+  const box = containerBox(classDiagram([container]), container);
+  assert.deepEqual(box, {
+    x: 10,
+    y: 20,
+    width: "Vacio".length * CONTAINER_TITLE_CHAR_WIDTH + CONTAINER_INSET,
+    height: CONTAINER_TITLE_HEIGHT + CONTAINER_INSET,
+  });
+  assert.deepEqual(containerBox(classDiagram([container]), container), box);
+});
+
+test("a container with children grows to fit a long title", () => {
+  const child = node({ id: "a", name: "A", x: 100, y: 200, parentId: "box" });
+  const container = pkg("box", { name: "T".repeat(80) });
+  const box = containerBox(classDiagram([container, child]), container);
+  const size = measureNode(child, "er");
+  const childrenWidth = size.width + CONTAINER_INSET * 2;
+  const titleWidth = 80 * CONTAINER_TITLE_CHAR_WIDTH + CONTAINER_INSET * 2;
+
+  assert.ok(box.width > childrenWidth, `width ${box.width} should exceed ${childrenWidth}`);
+  assert.ok(box.width >= titleWidth, `width ${box.width} should fit the title ${titleWidth}`);
+  assert.ok(child.x >= box.x && child.x + size.width <= box.x + box.width);
+  assert.ok(child.y >= box.y && child.y + size.height <= box.y + box.height);
+});
+
+test("a container with a short title keeps the width of its children", () => {
+  const child = node({ id: "a", name: "A", x: 100, y: 200, parentId: "box" });
+  const container = pkg("box", { name: "Ventas" });
+  const box = containerBox(classDiagram([container, child]), container);
+  assert.equal(box.width, measureNode(child, "er").width + CONTAINER_INSET * 2);
+});
+
+test("isContainer is true for package and region only", () => {
+  assert.equal(isContainer(node()), false);
+  assert.equal(isContainer(pkg("p")), true);
+  assert.equal(isContainer(node({ role: "region" })), true);
+});
+
+test("bounds includes the container title strip above its topmost child", () => {
+  const container = pkg("box");
+  const child = node({ id: "a", x: 0, y: 0, parentId: "box" });
+  const diagram = classDiagram([container, child]);
+  const frame = bounds(diagram);
+  const rect = containerBox(diagram, container);
+
+  assert.ok(frame.x <= rect.x);
+  assert.ok(frame.y <= rect.y);
+  assert.ok(frame.x + frame.width >= rect.x + rect.width);
+  assert.ok(frame.y + frame.height >= rect.y + rect.height);
+});
+
+test("containerTabPath draws a tab for a package and nothing for a region or an entity", () => {
+  const box = { x: 10, y: 20, width: 300, height: 200 };
+
+  const tab = containerTabPath(pkg("p"), box);
+  assert.ok(tab !== null && tab.length > 0);
+  assert.equal(containerTabPath(node({ role: "region" }), box), null);
+  assert.equal(containerTabPath(node(), box), null);
+});
+
+test("the tab stays inside the title strip of the container", () => {
+  const box = { x: 10, y: 20, width: 300, height: 200 };
+  // Drop the arc radii and flags so only coordinate pairs remain.
+  const path = (containerTabPath(pkg("p"), box) ?? "").replace(/A \d+(\.\d+)? \d+(\.\d+)? 0 0 1/g, "L");
+  const numbers = path.match(/-?\d+(\.\d+)?/g)?.map(Number) ?? [];
+
+  assert.ok(numbers.length > 0);
+  for (let index = 0; index < numbers.length; index += 2) {
+    assert.ok(numbers[index] >= box.x && numbers[index] <= box.x + box.width);
+  }
+  const ys = numbers.filter((_, index) => index % 2 === 1);
+  assert.ok(Math.min(...ys) >= box.y);
+  assert.ok(Math.max(...ys) <= box.y + CONTAINER_TITLE_HEIGHT);
+});
+
+test("a package and a region holding the same child get the same rectangle", () => {
+  const child = node({ id: "a", name: "A", x: 100, y: 200, parentId: "box" });
+  const size = measureNode(child, "er");
+  const expected = {
+    x: 100 - CONTAINER_INSET,
+    y: 200 - CONTAINER_INSET - CONTAINER_TITLE_HEIGHT,
+    width: size.width + CONTAINER_INSET * 2,
+    height: size.height + CONTAINER_INSET * 2 + CONTAINER_TITLE_HEIGHT,
+  };
+
+  for (const role of ["package", "region"] as const) {
+    const container = pkg("box", { role });
+    assert.deepEqual(containerBox(classDiagram([container, child]), container), expected);
+  }
 });

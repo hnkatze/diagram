@@ -1,9 +1,10 @@
-import { isStateDiagram } from "./types.ts";
+import { isContainerRole, isStateDiagram } from "./types.ts";
 import type {
   Cardinality,
   Diagram,
   DiagramField,
   DiagramKind,
+  ErDiagram,
   ErNode,
   Point,
   Rect,
@@ -36,6 +37,16 @@ export const STATE_PADDING_X = 16;
 export const STATE_NAME_FONT_SIZE = 14;
 /** Diameter of the `initial` circle and the `final` ring. */
 export const PSEUDO_STATE_SIZE = 24;
+
+/**
+ * Container geometry (spec S2). A container's rectangle is derived from its
+ * children, never stored; `containerBox` is the only place that does it, and
+ * these two constants are the only numbers it uses.
+ */
+export const CONTAINER_INSET = 24;
+export const CONTAINER_TITLE_HEIGHT = 28;
+/** Fixed per-character title width of an empty container, so its size is deterministic. */
+export const CONTAINER_TITLE_CHAR_WIDTH = 9;
 
 /** Glyphs that need extra room so long names do not clip. */
 const WIDE_GLYPHS = "mwMW@#%&";
@@ -85,6 +96,68 @@ export function measureState(node: StateNode): Size {
   const nameWidth = estimateTextWidth(node.name, STATE_NAME_FONT_SIZE) + STATE_PADDING_X * 2;
   const width = Math.min(STATE_MAX_WIDTH, Math.max(STATE_MIN_WIDTH, Math.ceil(nameWidth)));
   return { width, height: STATE_HEIGHT };
+}
+
+/** True for the roles that hold other nodes. */
+export function isContainer(node: ErNode): boolean {
+  return isContainerRole(node.role);
+}
+
+/**
+ * Rectangle of a container in document coordinates: the bounding box of its
+ * children grown by the inset, with the title strip reserved on top. An empty
+ * container keeps its own position and takes the minimum size that fits its title.
+ */
+export function containerBox(diagram: ErDiagram, container: ErNode): Rect {
+  const children = diagram.nodes.filter((node) => node.parentId === container.id);
+  if (children.length === 0) {
+    return {
+      x: container.x,
+      y: container.y,
+      width: container.name.length * CONTAINER_TITLE_CHAR_WIDTH + CONTAINER_INSET,
+      height: CONTAINER_TITLE_HEIGHT + CONTAINER_INSET,
+    };
+  }
+
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const child of children) {
+    const size = measureNode(child, diagram.kind);
+    minX = Math.min(minX, child.x);
+    minY = Math.min(minY, child.y);
+    maxX = Math.max(maxX, child.x + size.width);
+    maxY = Math.max(maxY, child.y + size.height);
+  }
+
+  return {
+    x: minX - CONTAINER_INSET,
+    y: minY - CONTAINER_INSET - CONTAINER_TITLE_HEIGHT,
+    // The title never overflows: the box is at least as wide as the title plus the inset on both sides.
+    width: Math.max(maxX - minX, container.name.length * CONTAINER_TITLE_CHAR_WIDTH) + CONTAINER_INSET * 2,
+    height: maxY - minY + CONTAINER_INSET * 2 + CONTAINER_TITLE_HEIGHT,
+  };
+}
+
+/** Corner radius of the folder tab of a package. */
+const CONTAINER_TAB_RADIUS = 6;
+
+/**
+ * Folder tab of a `package`, as an outline path in the same coordinates as `box`.
+ * It lives inside the title strip `containerBox` already reserves and is as wide
+ * as the title plus the inset, so the title sits on it. `region` and entities get
+ * none. Canvas and exporter both draw this and neither computes its own.
+ */
+export function containerTabPath(node: ErNode, box: Rect): string | null {
+  if (node.role !== "package") return null;
+  const width = Math.min(box.width, estimateTextWidth(node.name, ROW_FONT_SIZE) + CONTAINER_INSET);
+  const r = CONTAINER_TAB_RADIUS;
+  const left = box.x;
+  const right = box.x + width;
+  const top = box.y;
+  const bottom = box.y + CONTAINER_TITLE_HEIGHT;
+  return `M ${left} ${bottom} L ${left} ${top + r} A ${r} ${r} 0 0 1 ${left + r} ${top} L ${right - r} ${top} A ${r} ${r} 0 0 1 ${right} ${top + r} L ${right} ${bottom} Z`;
 }
 
 /** How far along the line each cardinality label sits from its own border point. */
@@ -255,9 +328,13 @@ export function bounds(diagram: Diagram, padding = 40): Rect {
     return { x: 0, y: 0, width: padding * 2, height: padding * 2 };
   }
 
-  const boxes = isStateDiagram(diagram)
+  const boxes: { node: { x: number; y: number }; size: Size }[] = isStateDiagram(diagram)
     ? diagram.nodes.map((node) => ({ node, size: measureState(node) }))
-    : diagram.nodes.map((node) => ({ node, size: measureNode(node, diagram.kind) }));
+    : diagram.nodes.map((node) => {
+        if (!isContainer(node)) return { node, size: measureNode(node, diagram.kind) };
+        const rect = containerBox(diagram, node);
+        return { node: rect, size: rect };
+      });
 
   let minX = Infinity;
   let minY = Infinity;

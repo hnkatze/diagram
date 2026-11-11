@@ -1,8 +1,8 @@
 import dagre from "@dagrejs/dagre";
 
-import { measureNode, measureState } from "./measure.ts";
+import { containerBox, isContainer, measureNode, measureState } from "./measure.ts";
 import { isStateDiagram } from "./types.ts";
-import type { Diagram, Point, Size } from "./types.ts";
+import type { Diagram, ErDiagram, Point, Size } from "./types.ts";
 
 /**
  * Automatic layout (specs S6, S8). Deterministic: the same diagram always
@@ -32,8 +32,12 @@ interface LayoutLink {
  * top-left corner of every box. Both families share this, so they also share the
  * separation constants and the rounding.
  */
-function place(boxes: readonly LayoutBox[], links: readonly LayoutLink[]): Map<string, Point> {
-  const graph = new dagre.graphlib.Graph({ multigraph: true });
+function place(
+  boxes: readonly LayoutBox[],
+  links: readonly LayoutLink[],
+  parents: ReadonlyMap<string, string> = new Map(),
+): Map<string, Point> {
+  const graph = new dagre.graphlib.Graph({ multigraph: true, compound: parents.size > 0 });
   graph.setGraph({
     rankdir: "TB",
     nodesep: LAYOUT_NODE_SEPARATION,
@@ -48,9 +52,16 @@ function place(boxes: readonly LayoutBox[], links: readonly LayoutLink[]): Map<s
   }
 
   const known = new Set(boxes.map((box) => box.id));
+  // Compound graph: dagre keeps the children of a parent together.
+  for (const [child, parent] of parents) {
+    if (known.has(child) && known.has(parent)) graph.setParent(child, parent);
+  }
+  // dagre cannot route an edge to a cluster, so edges that end on a container are ignored.
+  const clusters = new Set(parents.values());
   for (const link of links) {
     // A self relation carries no ordering information and would confuse ranks.
     if (link.source === link.target) continue;
+    if (clusters.has(link.source) || clusters.has(link.target)) continue;
     if (!known.has(link.source) || !known.has(link.target)) continue;
     graph.setEdge(link.source, link.target, {}, link.id);
   }
@@ -91,11 +102,39 @@ export function layout<T extends Diagram>(diagram: T): T {
     return { ...diagram, nodes: diagram.nodes.map((node) => moved(node, positions)) };
   }
 
+  return layoutClassNodes(diagram) as T;
+}
+
+/**
+ * Class family: dagre places the children and the free nodes, then every
+ * container is anchored to its children through `containerBox`, so the rectangle
+ * stays derived and is never decided here.
+ */
+function layoutClassNodes(diagram: ErDiagram): ErDiagram {
+  const parents = new Map<string, string>();
+  for (const node of diagram.nodes) {
+    if (node.parentId !== null) parents.set(node.id, node.parentId);
+  }
+
   const positions = place(
-    diagram.nodes.map((node) => ({ id: node.id, size: measureNode(node, diagram.kind) })),
+    diagram.nodes.map((node) => ({
+      id: node.id,
+      size: isContainer(node) ? containerBox({ ...diagram, nodes: [node] }, node) : measureNode(node, diagram.kind),
+    })),
     diagram.edges,
+    parents,
   );
-  return { ...diagram, nodes: diagram.nodes.map((node) => moved(node, positions)) };
+  const placed: ErDiagram = { ...diagram, nodes: diagram.nodes.map((node) => moved(node, positions)) };
+  if (parents.size === 0) return placed;
+
+  return {
+    ...placed,
+    nodes: placed.nodes.map((node) => {
+      if (!isContainer(node)) return node;
+      const { x, y } = containerBox(placed, node);
+      return { ...node, x, y };
+    }),
+  };
 }
 
 /**

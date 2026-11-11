@@ -2,19 +2,20 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { layout, layoutNewNodes } from "./layout.ts";
-import { measureNode, measureState } from "./measure.ts";
+import { CONTAINER_INSET, CONTAINER_TITLE_HEIGHT, containerBox, isContainer, measureNode, measureState } from "./measure.ts";
 import type {
   ClassDiagramKind,
   DiagramEdge,
   DiagramNode,
   ErDiagram,
+  Rect,
   StateDiagram,
   StateNode,
   StateRole,
   Transition,
 } from "./types.ts";
 
-const node = (id: string, name: string): DiagramNode => ({ id, name, x: 0, y: 0, fields: [] });
+const node = (id: string, name: string): DiagramNode => ({ id, name, x: 0, y: 0, fields: [], role: "entity", parentId: null });
 
 const edge = (source: string, target: string, id = `${source}->${target}`): DiagramEdge => ({
   id,
@@ -230,4 +231,85 @@ test("layoutNewNodes moves only the new state", () => {
   assert.ok(added);
   assert.notDeepEqual([added.x, added.y], [0, 0]);
   assert.equal(Number.isFinite(added.x) && Number.isFinite(added.y), true);
+});
+
+const packaged = (): ErDiagram => ({
+  version: 1,
+  kind: "er",
+  title: "",
+  nodes: [
+    { ...node("ventas", "Ventas"), role: "package" },
+    { ...node("logistica", "Logistica"), role: "package" },
+    { ...node("pedido", "Pedido"), parentId: "ventas" },
+    { ...node("item", "Item"), parentId: "ventas" },
+    { ...node("envio", "Envio"), parentId: "logistica" },
+    { ...node("ruta", "Ruta"), parentId: "logistica" },
+  ],
+  edges: [edge("pedido", "item"), edge("pedido", "envio"), edge("envio", "ruta")],
+});
+
+test("layout keeps every child inside its container rectangle", () => {
+  const placed = layout(packaged());
+  for (const container of placed.nodes.filter(isContainer)) {
+    const rect = containerBox(placed, container);
+    assert.equal(container.x, rect.x);
+    assert.equal(container.y, rect.y);
+    const children = placed.nodes.filter((child) => child.parentId === container.id);
+    assert.equal(children.length, 2);
+    for (const child of children) {
+      const size = measureNode(child, "er");
+      assert.ok(child.x >= rect.x + CONTAINER_INSET);
+      assert.ok(child.y >= rect.y + CONTAINER_INSET + CONTAINER_TITLE_HEIGHT);
+      assert.ok(child.x + size.width <= rect.x + rect.width - CONTAINER_INSET);
+      assert.ok(child.y + size.height <= rect.y + rect.height - CONTAINER_INSET);
+    }
+  }
+});
+
+test("layout with containers is deterministic", () => {
+  assert.deepEqual(layout(packaged()), layout(packaged()));
+});
+
+test("a diagram without containers lays out exactly as dagre did before", () => {
+  // Coordinates captured at HEAD before compound support existed.
+  assert.deepEqual(
+    layout(chain()).nodes.map((n) => [n.id, n.x, n.y]),
+    [
+      ["a", 40, 40],
+      ["b", 40, 202],
+      ["c", 40, 364],
+    ],
+  );
+});
+
+/** Pixels two rectangles share along the axis where they overlap least; 0 or less means they do not intersect. */
+function overlapDepth(one: Rect, two: Rect): number {
+  const across = Math.min(one.x + one.width, two.x + two.width) - Math.max(one.x, two.x);
+  const down = Math.min(one.y + one.height, two.y + two.height) - Math.max(one.y, two.y);
+  return Math.min(across, down);
+}
+
+const twoPackages = (links: DiagramEdge[]): ErDiagram => ({
+  version: 1,
+  kind: "er",
+  title: "",
+  nodes: [
+    { ...node("uno", "Uno"), role: "package" },
+    { ...node("dos", "Dos"), role: "package" },
+    { ...node("a", "Alpha"), parentId: "uno" },
+    { ...node("b", "Beta"), parentId: "dos" },
+  ],
+  edges: links,
+});
+
+test("containers stacked vertically do not intersect", () => {
+  const placed = layout(twoPackages([edge("a", "b")]));
+  const [uno, dos] = placed.nodes.filter(isContainer).map((container) => containerBox(placed, container));
+  assert.ok(dos.y >= uno.y + uno.height, `overlap of ${overlapDepth(uno, dos)}px`);
+});
+
+test("containers side by side do not intersect", () => {
+  const placed = layout(twoPackages([]));
+  const [uno, dos] = placed.nodes.filter(isContainer).map((container) => containerBox(placed, container));
+  assert.ok(overlapDepth(uno, dos) <= 0, `overlap of ${overlapDepth(uno, dos)}px`);
 });

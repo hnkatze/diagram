@@ -23,6 +23,12 @@ export type RelationKind =
   | "aggregation"
   | "dependency";
 
+/**
+ * What a class-family node is. An `entity` is a box with fields; `package` and
+ * `region` are containers that hold other nodes and carry no fields.
+ */
+export type NodeRole = "entity" | "package" | "region";
+
 export type StateRole = "state" | "initial" | "final";
 
 export interface DiagramField {
@@ -44,6 +50,9 @@ export interface ErNode {
   x: number;
   y: number;
   fields: DiagramField[];
+  role: NodeRole;
+  /** Id of the container this node sits in; `null` means top level. */
+  parentId: string | null;
 }
 
 /**
@@ -142,6 +151,8 @@ export const RELATION_KINDS: readonly RelationKind[] = [
   "dependency",
 ];
 
+export const NODE_ROLES: readonly NodeRole[] = ["entity", "package", "region"];
+
 export const VISIBILITIES: readonly Visibility[] = ["+", "-", "#"];
 
 export const DEFAULT_CARDINALITY: Cardinality = "1..*";
@@ -168,6 +179,15 @@ export function normalizeCardinality(value: string): Cardinality | null {
 
 export function isRelationKind(value: string): value is RelationKind {
   return (RELATION_KINDS as readonly string[]).includes(value);
+}
+
+export function isNodeRole(value: string): value is NodeRole {
+  return (NODE_ROLES as readonly string[]).includes(value);
+}
+
+/** A container is a class-family node that holds other nodes instead of fields. */
+export function isContainerRole(role: NodeRole): boolean {
+  return role !== "entity";
 }
 
 export function isVisibility(value: string): value is Visibility {

@@ -12,7 +12,7 @@ import type {
   StateRole,
   Transition,
 } from "./types.ts";
-import { RELATION_KINDS, err, isDiagramKind, isRelationKind, isVisibility, normalizeCardinality, ok } from "./types.ts";
+import { NODE_ROLES, RELATION_KINDS, err, isDiagramKind, isNodeRole, isRelationKind, isVisibility, normalizeCardinality, ok } from "./types.ts";
 
 /**
  * Persistence (spec S10): the autosaved local copy and the `.json` exchange
@@ -49,9 +49,9 @@ function readField(value: unknown): DiagramField | null {
   return { name, type, visibility, pk, fk, uk, nullable };
 }
 
-function readNode(value: unknown): ErNode | null {
+function readNode(value: unknown): Result<ErNode> | null {
   if (!isRecord(value)) return null;
-  const { id, name, x, y, fields } = value;
+  const { id, name, x, y, fields, role, parentId } = value;
   if (typeof id !== "string" || typeof name !== "string") return null;
   if (typeof x !== "number" || !Number.isFinite(x)) return null;
   if (typeof y !== "number" || !Number.isFinite(y)) return null;
@@ -62,7 +62,14 @@ function readNode(value: unknown): ErNode | null {
     if (!parsed) return null;
     parsedFields.push(parsed);
   }
-  return { id, name, x, y, fields: parsedFields };
+  // A file written before containers existed has neither: a top-level entity.
+  if (role !== undefined && (typeof role !== "string" || !isNodeRole(role))) {
+    return err(`The node "${id}" has an unknown role "${String(role)}" (expected ${NODE_ROLES.join(", ")})`);
+  }
+  if (parentId !== undefined && parentId !== null && typeof parentId !== "string") {
+    return err(`The node "${id}" has an invalid parentId "${String(parentId)}"`);
+  }
+  return ok({ id, name, x, y, fields: parsedFields, role: role ?? "entity", parentId: parentId ?? null });
 }
 
 function readEdge(value: unknown): Result<RelationEdge> {
@@ -134,7 +141,8 @@ function readErDiagram(value: unknown): Result<ErDiagram> {
   for (const node of nodes) {
     const parsed = readNode(node);
     if (!parsed) return err("The diagram contains an invalid entity");
-    parsedNodes.push(parsed);
+    if (!parsed.ok) return err(parsed.error);
+    parsedNodes.push(parsed.value);
   }
 
   const parsedEdges: RelationEdge[] = [];

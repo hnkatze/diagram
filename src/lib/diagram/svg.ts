@@ -3,6 +3,8 @@ import {
   NODE_HEADER_HEIGHT,
   NODE_PADDING_X,
   NODE_ROW_HEIGHT,
+  CONTAINER_INSET,
+  CONTAINER_TITLE_HEIGHT,
   PSEUDO_STATE_SIZE,
   ROW_FONT_SIZE,
   STATE_NAME_FONT_SIZE,
@@ -11,9 +13,12 @@ import {
   bounds,
   cardinalityPoints,
   cardinalityLabel,
+  containerBox,
+  containerTabPath,
   edgeMarker,
   estimateTextWidth,
   formatFieldLabel,
+  isContainer,
   markerEnd,
   measureNode,
   measureState,
@@ -91,6 +96,8 @@ interface Palette {
   muted: string;
   edge: string;
   label: string;
+  container: string;
+  containerTitle: string;
 }
 
 /**
@@ -106,6 +113,8 @@ const PALETTES: Record<SvgTheme, Palette> = {
     muted: "#a1a1a1", // --muted-foreground
     edge: "#8f8f8f",
     label: "#d4d4d4",
+    container: "#141414",
+    containerTitle: "#a1a1a1",
   },
   light: {
     background: "#ffffff",
@@ -115,6 +124,8 @@ const PALETTES: Record<SvgTheme, Palette> = {
     muted: "#475569",
     edge: "#64748b",
     label: "#334155",
+    container: "#f1f5f9",
+    containerTitle: "#475569",
   },
 };
 
@@ -214,10 +225,20 @@ export function toSvg(diagram: Diagram, options: SvgOptions = {}): string {
 function classBody(diagram: ErDiagram, frame: Frame): string[] {
   const boxes = new Map<string, Rect>();
   for (const node of diagram.nodes) {
-    boxes.set(node.id, boxOf(node, measureNode(node, diagram.kind), frame));
+    // A container's rectangle is already absolute; only its origin moves into the document.
+    const placed = isContainer(node) ? containerBox(diagram, node) : node;
+    const size = isContainer(node) ? containerBox(diagram, node) : measureNode(node, diagram.kind);
+    boxes.set(node.id, boxOf(placed, size, frame));
   }
 
   const parts: string[] = [];
+
+  // Containers go first, so neither a child nor a relation is painted over by one.
+  for (const node of diagram.nodes) {
+    const containerRect = boxes.get(node.id);
+    if (!containerRect || !isContainer(node)) continue;
+    parts.push(renderContainer(node, containerRect, frame));
+  }
 
   // Relations go under the entities so a box always covers its own edge ends.
   for (const edge of diagram.edges) {
@@ -226,11 +247,21 @@ function classBody(diagram: ErDiagram, frame: Frame): string[] {
 
   for (const node of diagram.nodes) {
     const entityBox = boxes.get(node.id);
-    if (!entityBox) continue;
+    if (!entityBox || isContainer(node)) continue;
     parts.push(renderNode(node, entityBox, diagram.kind, frame.palette));
   }
 
   return parts;
+}
+
+function renderContainer(node: ErNode, box: Rect, frame: Frame): string {
+  const palette = frame.palette;
+  const tab = containerTabPath(node, box);
+  return [
+    `<rect class="container" x="${box.x}" y="${box.y}" width="${box.width}" height="${box.height}" rx="${BOX_RADIUS}" fill="${palette.container}" stroke="${palette.stroke}" stroke-width="1.5"/>`,
+    ...(tab === null ? [] : [`<path class="container-tab" d="${tab}" fill="${palette.header}" stroke="${palette.stroke}" stroke-width="1.5"/>`]),
+    `<text class="container-title" x="${round(box.x + CONTAINER_INSET / 2)}" y="${round(box.y + CONTAINER_TITLE_HEIGHT / 2)}" font-size="${ROW_FONT_SIZE}" font-weight="600" fill="${palette.containerTitle}">${escapeXml(node.name)}</text>`,
+  ].join("");
 }
 
 function renderEdge(edge: RelationEdge, boxes: Map<string, Rect>, frame: Frame): string {

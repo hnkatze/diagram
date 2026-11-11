@@ -33,7 +33,7 @@ test("svgSize reads the root size of an exported document", () => {
     version: 1,
     kind: "er",
     title: "",
-    nodes: [{ id: "a", name: "A", x: 0, y: 0, fields: [] }],
+    nodes: [{ id: "a", name: "A", x: 0, y: 0, fields: [], role: "entity", parentId: null }],
     edges: [],
   });
   const size = svgSize(svg);

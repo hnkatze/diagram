@@ -38,6 +38,8 @@ const node = (over: Partial<DiagramNode> = {}): DiagramNode => ({
   x: 0,
   y: 0,
   fields: [field({ name: "id", type: "int", pk: true })],
+  role: "entity",
+  parentId: null,
   ...over,
 });
 
@@ -521,4 +523,69 @@ test("a directed association draws an open arrow on a solid line", () => {
 
   assert.equal(fillOf(markerOf(svg, "directed-association")), "none");
   assert.doesNotMatch(svg, /stroke-dasharray/);
+});
+
+const nested = (over: Partial<ErDiagram> = {}): ErDiagram =>
+  diagram({
+    nodes: [
+      node({ id: "ventas", name: "Ventas", role: "package", fields: [], x: 0, y: 0 }),
+      node({ id: "pedido", name: "Pedido", x: 100, y: 100, parentId: "ventas" }),
+    ],
+    edges: [],
+    ...over,
+  });
+
+test("a container is drawn before the first node it holds", () => {
+  const svg = toSvg(nested());
+
+  const container = svg.indexOf('class="container"');
+  const child = svg.indexOf('id="box-pedido"');
+  assert.ok(container >= 0);
+  assert.ok(child >= 0);
+  assert.ok(container < child);
+});
+
+test("the container title is drawn and escaped", () => {
+  const svg = toSvg(
+    nested({
+      nodes: [
+        node({ id: "ventas", name: 'Ven"tas & <Co>', role: "region", fields: [] }),
+        node({ id: "pedido", name: "Pedido", x: 100, y: 100, parentId: "ventas" }),
+      ],
+    }),
+  );
+
+  assert.match(svg, /class="container-title"[^>]*>Ven&quot;tas &amp; &lt;Co&gt;</);
+  assert.doesNotMatch(svg, /Ven"tas/);
+});
+
+test("the light theme gives the container a different fill", () => {
+  const fillOfContainer = (svg: string): string | undefined =>
+    svg.match(/<rect class="container"[^>]* fill="([^"]*)"/)?.[1];
+
+  const dark = fillOfContainer(toSvg(nested()));
+  const light = fillOfContainer(toSvg(nested(), { theme: "light" }));
+
+  assert.ok(dark && light);
+  assert.notEqual(dark, light);
+});
+
+test("a diagram without containers never draws container markup", () => {
+  const plain = diagram({ nodes: [node(), node({ id: "pedido", name: "Pedido", x: 300 })], edges: [edge()] });
+
+  assert.equal(toSvg(plain), toSvg(structuredClone(plain)));
+  assert.doesNotMatch(toSvg(plain), /container/);
+});
+
+test("a package draws a folder tab and a region does not", () => {
+  const withRole = (role: "package" | "region"): ErDiagram =>
+    nested({
+      nodes: [
+        node({ id: "ventas", name: "Ventas", role, fields: [] }),
+        node({ id: "pedido", name: "Pedido", x: 100, y: 100, parentId: "ventas" }),
+      ],
+    });
+
+  assert.match(toSvg(withRole("package")), /class="container-tab"/);
+  assert.doesNotMatch(toSvg(withRole("region")), /class="container-tab"/);
 });
