@@ -23,6 +23,11 @@ npm run build     # production build
 npm run typecheck # tsc --noEmit
 ```
 
+Open the dev server as **`http://localhost:3000`** — not `127.0.0.1` and not the LAN IP.
+Next 16 blocks the `/_next/hmr` socket for any other origin, and the page then renders
+without hydrating: the canvas shows no relations and nothing is autosaved. `npm start`
+(production) is not affected by this gate.
+
 ## The DSL
 
 The panel text is the canonical structural form of the diagram; positions live in the

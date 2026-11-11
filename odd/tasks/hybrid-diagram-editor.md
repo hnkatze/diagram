@@ -66,6 +66,7 @@ Rules: `diagram <kind> "<title>"` opens the file and is optional (defaults to `e
 | T10 | Browser verification of the dark shell, typefaces and layout | S12 | inline | pending |
 | T11 | Edge endpoints on the box border from shared geometry, so relation cardinalities are never hidden by an entity | S4, S9, S12 | worker | pending |
 | T12 | Export background switch (dark or light) for SVG and PNG | S9 | inline | pending |
+| T13 | Diagnose the "missing relation edges" report after T11: not a code regression — the dev server refuses `/_next/hmr` on `127.0.0.1`, the client never hydrates, and only the SSR markup is measured | S4 | worker | no code change |
 
 ## Log
 
@@ -94,3 +95,7 @@ L11 (defect, parent, found in the browser): relation endpoints were anchored to 
 L12 (user, verbatim): "que podamos exportar los modelos en white o dark que tengamos esa opcion pls"
 
 L13 (decision, parent): the export background becomes an explicit choice in the export dialog (`Oscuro` default, `Claro` for documents and print), applied to SVG and PNG alike. The app shell stays dark — the switch describes the delivered file, not the editor.
+
+L14 (evidence, T13): the report that `cdc9a97` made the relation edges vanish does not reproduce as a code defect.At HEAD with a healthy dev server, `127.0.0.1:3000` yields 0 `.react-flow__edge`, an identity viewport transform, no `__reactFiber` key on `.react-flow` and no `diagram-editor:v1` in `localStorage` — that is the *server-rendered* page, i.e. no hydration at all — while `localhost:3000` and `foo.localhost:3000` on the same server hydrate and return 3 edges, 3 paths and 4369 bytes of autosave. `192.168.1.3:3000` fails like `127.0.0.1`. Next 16's `blockCrossSiteDEV` (`node_modules/next/dist/server/lib/router-utils/block-cross-site-dev.js`) 403s `/_next/*` dev resources whose origin is not in `['**.localhost', 'localhost', ...allowedDevOrigins]`; the only blocked request is `ws://…/_next/hmr` (`ERR_INVALID_HTTP_RESPONSE`), and blocking that same socket on `localhost` through CDP reproduces the identical dead state, so the failed dev socket is what stops the client before `hydrateRoot`. The served HTML is byte-identical for both hosts, so the page itself is not the difference. The production server (`next start` on `127.0.0.1:3100`) renders 3 edges, 9 relation labels, autosave present and 0 console errors, which closes the question of a T11 regression: `useInternalNode` inside a custom edge is legal in @xyflow/react 12 and keeps endpoints on the border while a node is dragged (Pedido moved 253,364 → 454,294, every endpoint still `out: 0`, `coveredBy: []`). Remedy is one line in `next.config.ts` — `allowedDevOrigins` — which is outside T13's allowed edit surfaces.
+
+L15 (decision, user): the user chose not to touch `next.config.ts`. Development happens on `http://localhost:3000`; the constraint is documented in the README together with the fact that `npm start` is unaffected. Verdict on T13: no code change, and the earlier "edges do not render" claim was a measurement error on an unhydrated page, not a defect.
