@@ -1,8 +1,21 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { measureNode, formatFieldLabel, bounds, estimateTextWidth, borderPoint } from "./measure.ts";
-import type { DiagramField, DiagramNode } from "./types.ts";
+import {
+  measureNode,
+  measureState,
+  formatFieldLabel,
+  bounds,
+  estimateTextWidth,
+  borderPoint,
+  PSEUDO_STATE_SIZE,
+  STATE_HEIGHT,
+  STATE_MAX_WIDTH,
+  STATE_MIN_WIDTH,
+  STATE_NAME_FONT_SIZE,
+  STATE_PADDING_X,
+} from "./measure.ts";
+import type { DiagramField, DiagramNode, StateDiagram, StateNode } from "./types.ts";
 
 const field = (over: Partial<DiagramField> = {}): DiagramField => ({
   name: "id",
@@ -21,6 +34,15 @@ const node = (over: Partial<DiagramNode> = {}): DiagramNode => ({
   x: 0,
   y: 0,
   fields: [field()],
+  ...over,
+});
+
+const stateNode = (over: Partial<StateNode> = {}): StateNode => ({
+  id: "nuevo",
+  name: "Nuevo",
+  x: 0,
+  y: 0,
+  role: "state",
   ...over,
 });
 
@@ -101,4 +123,48 @@ test("bounds wraps every node plus the padding", () => {
   assert.ok(box.y <= 20);
   assert.ok(box.x + box.width >= 300 + 180);
   assert.ok(box.y + box.height >= 40 + measureNode(node({ id: "b", name: "B", fields: [] }), "er").height);
+});
+
+test("measureState gives both pseudo-states one fixed square size", () => {
+  const initial = measureState(stateNode({ id: "initial", role: "initial", name: "" }));
+  const final = measureState(stateNode({ id: "final", role: "final", name: "" }));
+  assert.deepEqual(initial, { width: PSEUDO_STATE_SIZE, height: PSEUDO_STATE_SIZE });
+  assert.deepEqual(final, initial);
+});
+
+test("measureState keeps a state inside the minimum and maximum width", () => {
+  const tiny = measureState(stateNode({ name: "A" }));
+  assert.equal(tiny.width, STATE_MIN_WIDTH);
+
+  const wide = measureState(stateNode({ name: "Un Nombre De Estado Absurdamente Largo De Verdad" }));
+  assert.equal(wide.width, STATE_MAX_WIDTH);
+
+  const middle = measureState(stateNode({ name: "Pedido Confirmado" }));
+  assert.equal(
+    middle.width,
+    estimateTextWidth("Pedido Confirmado", STATE_NAME_FONT_SIZE) + STATE_PADDING_X * 2,
+  );
+  assert.ok(middle.width > STATE_MIN_WIDTH && middle.width < STATE_MAX_WIDTH);
+});
+
+test("measureState gives every state the shared height", () => {
+  assert.equal(measureState(stateNode()).height, STATE_HEIGHT);
+});
+
+test("bounds on a state diagram wraps every node plus the padding", () => {
+  const diagram: StateDiagram = {
+    version: 1,
+    kind: "state",
+    title: "",
+    nodes: [
+      stateNode({ id: "initial", role: "initial", name: "", x: 0, y: 0 }),
+      stateNode({ id: "nuevo", name: "Nuevo", x: 300, y: 100 }),
+      stateNode({ id: "final", role: "final", name: "", x: 10, y: 400 }),
+    ],
+    edges: [],
+  };
+
+  assert.deepEqual(bounds(diagram, 20), { x: -20, y: -20, width: 460, height: 464 });
+  // The pseudo-states are covered by their own square, not by the state height.
+  assert.ok(bounds(diagram, 0).y + bounds(diagram, 0).height >= 400 + PSEUDO_STATE_SIZE);
 });

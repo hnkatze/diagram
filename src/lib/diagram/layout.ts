@@ -1,21 +1,38 @@
 import dagre from "@dagrejs/dagre";
 
-import { measureNode } from "./measure.ts";
-import type { ErDiagram } from "./types.ts";
+import { measureNode, measureState } from "./measure.ts";
+import { isStateDiagram } from "./types.ts";
+import type { Diagram, Point, Size } from "./types.ts";
 
 /**
- * Automatic layout (spec S8). Deterministic: the same diagram always produces
- * the same coordinates, because dagre is fed the model order and nothing else.
+ * Automatic layout (specs S6, S8). Deterministic: the same diagram always
+ * produces the same coordinates, because dagre is fed the model order and
+ * nothing else.
  */
 
 export const LAYOUT_NODE_SEPARATION = 60;
 export const LAYOUT_RANK_SEPARATION = 90;
 export const LAYOUT_MARGIN = 40;
 
-/** Recomputes every node position, leaving the structure untouched. */
-export function layout(diagram: ErDiagram): ErDiagram {
-  if (diagram.nodes.length === 0) return diagram;
+/** A node as dagre sees it: an id and the box the family measured for it. */
+interface LayoutBox {
+  id: string;
+  size: Size;
+}
 
+/** The only part of an edge layout needs: both ends and a unique name. */
+interface LayoutLink {
+  id: string;
+  source: string;
+  target: string;
+}
+
+/**
+ * Runs dagre top to bottom over the boxes and links it is given and returns the
+ * top-left corner of every box. Both families share this, so they also share the
+ * separation constants and the rounding.
+ */
+function place(boxes: readonly LayoutBox[], links: readonly LayoutLink[]): Map<string, Point> {
   const graph = new dagre.graphlib.Graph({ multigraph: true });
   graph.setGraph({
     rankdir: "TB",
@@ -26,43 +43,66 @@ export function layout(diagram: ErDiagram): ErDiagram {
   });
   graph.setDefaultEdgeLabel(() => ({}));
 
-  const sizes = new Map<string, { width: number; height: number }>();
-  for (const node of diagram.nodes) {
-    const size = measureNode(node, diagram.kind);
-    sizes.set(node.id, size);
-    graph.setNode(node.id, { width: size.width, height: size.height });
+  for (const box of boxes) {
+    graph.setNode(box.id, { width: box.size.width, height: box.size.height });
   }
 
-  const known = new Set(diagram.nodes.map((node) => node.id));
-  for (const edge of diagram.edges) {
+  const known = new Set(boxes.map((box) => box.id));
+  for (const link of links) {
     // A self relation carries no ordering information and would confuse ranks.
-    if (edge.source === edge.target) continue;
-    if (!known.has(edge.source) || !known.has(edge.target)) continue;
-    graph.setEdge(edge.source, edge.target, {}, edge.id);
+    if (link.source === link.target) continue;
+    if (!known.has(link.source) || !known.has(link.target)) continue;
+    graph.setEdge(link.source, link.target, {}, link.id);
   }
 
   dagre.layout(graph);
 
-  return {
-    ...diagram,
-    nodes: diagram.nodes.map((node) => {
-      const placed = graph.node(node.id) as { x: number; y: number } | undefined;
-      const size = sizes.get(node.id);
-      if (!placed || !size) return node;
-      return {
-        ...node,
-        x: Math.round(placed.x - size.width / 2),
-        y: Math.round(placed.y - size.height / 2),
-      };
-    }),
-  };
+  const positions = new Map<string, Point>();
+  for (const box of boxes) {
+    const placed = graph.node(box.id) as { x: number; y: number } | undefined;
+    if (!placed) continue;
+    positions.set(box.id, {
+      x: Math.round(placed.x - box.size.width / 2),
+      y: Math.round(placed.y - box.size.height / 2),
+    });
+  }
+  return positions;
+}
+
+/** Applies a computed position to one node, leaving anything unplaced alone. */
+function moved<T extends { id: string; x: number; y: number }>(node: T, positions: Map<string, Point>): T {
+  const at = positions.get(node.id);
+  return at ? { ...node, x: at.x, y: at.y } : node;
 }
 
 /**
- * Places only the given entities with dagre and leaves every other entity
- * exactly where the user put it (spec S7).
+ * Recomputes every node position, leaving the structure untouched. One entry
+ * point for both families: the node sizes come from each family's own measure,
+ * so the layout and the drawn box can never disagree.
  */
-export function layoutNewNodes(diagram: ErDiagram, addedIds: readonly string[]): ErDiagram {
+export function layout<T extends Diagram>(diagram: T): T {
+  if (diagram.nodes.length === 0) return diagram;
+
+  if (isStateDiagram(diagram)) {
+    const positions = place(
+      diagram.nodes.map((node) => ({ id: node.id, size: measureState(node) })),
+      diagram.edges,
+    );
+    return { ...diagram, nodes: diagram.nodes.map((node) => moved(node, positions)) };
+  }
+
+  const positions = place(
+    diagram.nodes.map((node) => ({ id: node.id, size: measureNode(node, diagram.kind) })),
+    diagram.edges,
+  );
+  return { ...diagram, nodes: diagram.nodes.map((node) => moved(node, positions)) };
+}
+
+/**
+ * Places only the given nodes with dagre and leaves every other node exactly
+ * where the user put it (specs S6, S7).
+ */
+export function layoutNewNodes<T extends Diagram>(diagram: T, addedIds: readonly string[]): T {
   if (addedIds.length === 0) return diagram;
   if (diagram.nodes.length === 0) return diagram;
 

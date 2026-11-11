@@ -1,4 +1,5 @@
-import type { DiagramField, DiagramKind, ErDiagram, ErNode, Point, Rect, Size } from "./types.ts";
+import { isStateDiagram } from "./types.ts";
+import type { Diagram, DiagramField, DiagramKind, ErNode, Point, Rect, Size, StateNode } from "./types.ts";
 
 /**
  * Node geometry is shared by the canvas and the image exporter so both agree
@@ -12,6 +13,18 @@ export const NODE_MIN_WIDTH = 180;
 export const NODE_MAX_WIDTH = 320;
 export const NAME_FONT_SIZE = 14;
 export const ROW_FONT_SIZE = 12;
+
+/**
+ * State geometry (spec S6). Shared by the canvas, the layout and the exporter,
+ * so a state cannot be one size on screen and another one in the file.
+ */
+export const STATE_MIN_WIDTH = 120;
+export const STATE_MAX_WIDTH = 260;
+export const STATE_HEIGHT = 48;
+export const STATE_PADDING_X = 16;
+export const STATE_NAME_FONT_SIZE = 14;
+/** Diameter of the `initial` circle and the `final` ring. */
+export const PSEUDO_STATE_SIZE = 24;
 
 /** Glyphs that need extra room so long names do not clip. */
 const WIDE_GLYPHS = "mwMW@#%&";
@@ -50,6 +63,17 @@ export function measureNode(node: ErNode, kind: DiagramKind): Size {
   const rows = Math.max(node.fields.length, 1);
   const height = NODE_HEADER_HEIGHT + rows * NODE_ROW_HEIGHT + NODE_PADDING_BOTTOM;
   return { width, height };
+}
+
+/**
+ * A state sizes from its name only; the two pseudo-states are square glyphs with
+ * no text, so they share one fixed size.
+ */
+export function measureState(node: StateNode): Size {
+  if (node.role !== "state") return { width: PSEUDO_STATE_SIZE, height: PSEUDO_STATE_SIZE };
+  const nameWidth = estimateTextWidth(node.name, STATE_NAME_FONT_SIZE) + STATE_PADDING_X * 2;
+  const width = Math.min(STATE_MAX_WIDTH, Math.max(STATE_MIN_WIDTH, Math.ceil(nameWidth)));
+  return { width, height: STATE_HEIGHT };
 }
 
 /** How far along the line each cardinality label sits from its own border point. */
@@ -119,19 +143,25 @@ export function cardinalityPoints(
   };
 }
 
-/** Bounding box of every node, expanded by `padding`, used by the exporter. */
-export function bounds(diagram: ErDiagram, padding = 40): Rect {
+/**
+ * Bounding box of every node, expanded by `padding`, used by the exporter.
+ * Dispatches on `kind` so each family is measured by its own function.
+ */
+export function bounds(diagram: Diagram, padding = 40): Rect {
   if (diagram.nodes.length === 0) {
     return { x: 0, y: 0, width: padding * 2, height: padding * 2 };
   }
+
+  const boxes = isStateDiagram(diagram)
+    ? diagram.nodes.map((node) => ({ node, size: measureState(node) }))
+    : diagram.nodes.map((node) => ({ node, size: measureNode(node, diagram.kind) }));
 
   let minX = Infinity;
   let minY = Infinity;
   let maxX = -Infinity;
   let maxY = -Infinity;
 
-  for (const node of diagram.nodes) {
-    const size = measureNode(node, diagram.kind);
+  for (const { node, size } of boxes) {
     minX = Math.min(minX, node.x);
     minY = Math.min(minY, node.y);
     maxX = Math.max(maxX, node.x + size.width);
