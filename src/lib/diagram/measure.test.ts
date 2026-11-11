@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { measureNode, formatFieldLabel, bounds, estimateTextWidth } from "./measure.ts";
+import { measureNode, formatFieldLabel, bounds, estimateTextWidth, borderPoint } from "./measure.ts";
 import type { DiagramField, DiagramNode } from "./types.ts";
 
 const field = (over: Partial<DiagramField> = {}): DiagramField => ({
@@ -65,6 +65,24 @@ test("measureNode height grows one row per field", () => {
   const one = measureNode(node({ fields: [field()] }), "er");
   const three = measureNode(node({ fields: [field(), field(), field()] }), "er");
   assert.equal(three.height - one.height, 48);
+});
+
+test("borderPoint leaves the box on the axis-aligned side that faces the target", () => {
+  const box = { x: 0, y: 0, width: 100, height: 50 };
+  assert.deepEqual(borderPoint(box, 200, 25), { x: 100, y: 25 });
+  assert.deepEqual(borderPoint(box, -200, 25), { x: 0, y: 25 });
+});
+
+test("borderPoint clips a diagonal ray to the nearer of the two sides", () => {
+  const box = { x: 0, y: 0, width: 100, height: 100 };
+  const point = borderPoint(box, 200, 150);
+  assert.equal(point.x, 100);
+  assert.ok(Math.abs(point.y - 83.33) < 0.01);
+});
+
+test("borderPoint lands exactly on a corner for a corner-directed ray", () => {
+  const box = { x: 0, y: 0, width: 100, height: 100 };
+  assert.deepEqual(borderPoint(box, 150, 150), { x: 100, y: 100 });
 });
 
 test("bounds wraps every node plus the padding", () => {

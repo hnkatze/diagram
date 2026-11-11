@@ -70,6 +70,27 @@ test("draws the relation label and both cardinalities", () => {
   assert.match(svg, /<line x1=/);
 });
 
+test("the source cardinality sits outside the source entity box", () => {
+  const drawing = diagram();
+  const svg = toSvg(drawing);
+  const outer = bounds(drawing, 48);
+  const size = measureNode(node(), "er");
+  const sourceBox = {
+    left: node().x - outer.x,
+    top: node().y - outer.y,
+    right: node().x - outer.x + size.width,
+    bottom: node().y - outer.y + size.height,
+  };
+
+  const match = /<text class="c" x="(-?[\d.]+)" y="(-?[\d.]+)"[^>]*>1<\/text>/.exec(svg);
+  assert.ok(match, "the source cardinality text element is rendered");
+  const x = Number(match[1]);
+  const y = Number(match[2]);
+  const outside =
+    x <= sourceBox.left || x >= sourceBox.right || y <= sourceBox.top || y >= sourceBox.bottom;
+  assert.ok(outside, `cardinality at ${x},${y} must not be covered by the box ${JSON.stringify(sourceBox)}`);
+});
+
 test("a self relation becomes a path instead of a line", () => {
   const selfLoop = diagram({
     nodes: [node()],

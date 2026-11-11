@@ -1,4 +1,4 @@
-import type { Diagram, DiagramField, DiagramKind, DiagramNode, Rect, Size } from "./types.ts";
+import type { Diagram, DiagramField, DiagramKind, DiagramNode, Point, Rect, Size } from "./types.ts";
 
 /**
  * Node geometry is shared by the canvas and the image exporter so both agree
@@ -50,6 +50,73 @@ export function measureNode(node: DiagramNode, kind: DiagramKind): Size {
   const rows = Math.max(node.fields.length, 1);
   const height = NODE_HEADER_HEIGHT + rows * NODE_ROW_HEIGHT + NODE_PADDING_BOTTOM;
   return { width, height };
+}
+
+/** How far along the line each cardinality label sits from its own border point. */
+export const CARDINALITY_INSET = 22;
+/** How far the label is pushed off the line, so text never sits on top of it. */
+export const CARDINALITY_OFFSET = 10;
+
+const roundPoint = (value: number): number => Math.round(value * 100) / 100;
+
+/**
+ * Point where the ray from the rectangle center towards `toward` leaves the box.
+ * Relation endpoints are cut on the border with this, so a line never starts by
+ * running back across the inside of its own entity.
+ */
+export function borderPoint(box: Rect, towardX: number, towardY: number): Point {
+  const centerX = box.x + box.width / 2;
+  const centerY = box.y + box.height / 2;
+  const dx = towardX - centerX;
+  const dy = towardY - centerY;
+  if (dx === 0 && dy === 0) return { x: centerX, y: centerY };
+
+  const scaleX = dx === 0 ? Number.POSITIVE_INFINITY : box.width / 2 / Math.abs(dx);
+  const scaleY = dy === 0 ? Number.POSITIVE_INFINITY : box.height / 2 / Math.abs(dy);
+  const scale = Math.min(scaleX, scaleY);
+  return { x: roundPoint(centerX + dx * scale), y: roundPoint(centerY + dy * scale) };
+}
+
+/** Sign that pushes a label away from the box it belongs to. */
+function outwardSign(point: Point, box: Rect | undefined, perpX: number, perpY: number): number {
+  if (!box) return 1;
+  const normalX = point.x - (box.x + box.width / 2);
+  const normalY = point.y - (box.y + box.height / 2);
+  return normalX * perpX + normalY * perpY < 0 ? -1 : 1;
+}
+
+/**
+ * Where the two cardinalities of a relation are drawn: inset along the line and
+ * nudged off it, on the side that faces away from the entity they belong to.
+ * Canvas and exporter share this so the screen and the file place them equally.
+ */
+export function cardinalityPoints(
+  from: Point,
+  to: Point,
+  sourceBox?: Rect,
+  targetBox?: Rect,
+): { source: Point; target: Point } {
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const length = Math.hypot(dx, dy) || 1;
+  const unitX = dx / length;
+  const unitY = dy / length;
+  // Left normal of the direction of travel, flipped per end when it points inward.
+  const perpX = unitY;
+  const perpY = -unitX;
+  const sourceSign = outwardSign(from, sourceBox, perpX, perpY) * CARDINALITY_OFFSET;
+  const targetSign = outwardSign(to, targetBox, perpX, perpY) * CARDINALITY_OFFSET;
+
+  return {
+    source: {
+      x: from.x + unitX * CARDINALITY_INSET + perpX * sourceSign,
+      y: from.y + unitY * CARDINALITY_INSET + perpY * sourceSign,
+    },
+    target: {
+      x: to.x - unitX * CARDINALITY_INSET + perpX * targetSign,
+      y: to.y - unitY * CARDINALITY_INSET + perpY * targetSign,
+    },
+  };
 }
 
 /** Bounding box of every node, expanded by `padding`, used by the exporter. */

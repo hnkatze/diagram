@@ -4,7 +4,9 @@ import {
   NODE_PADDING_X,
   NODE_ROW_HEIGHT,
   ROW_FONT_SIZE,
+  borderPoint,
   bounds,
+  cardinalityPoints,
   estimateTextWidth,
   formatFieldLabel,
   measureNode,
@@ -85,20 +87,6 @@ function escapeXml(value: string): string {
 
 function round(value: number): number {
   return Math.round(value * 100) / 100;
-}
-
-/** Point where the segment from the rectangle center towards `toward` leaves the box. */
-function borderPoint(box: Rect, towardX: number, towardY: number): { x: number; y: number } {
-  const centerX = box.x + box.width / 2;
-  const centerY = box.y + box.height / 2;
-  const dx = towardX - centerX;
-  const dy = towardY - centerY;
-  if (dx === 0 && dy === 0) return { x: centerX, y: centerY };
-
-  const scaleX = dx === 0 ? Number.POSITIVE_INFINITY : box.width / 2 / Math.abs(dx);
-  const scaleY = dy === 0 ? Number.POSITIVE_INFINITY : box.height / 2 / Math.abs(dy);
-  const scale = Math.min(scaleX, scaleY);
-  return { x: centerX + dx * scale, y: centerY + dy * scale };
 }
 
 export function toSvg(diagram: Diagram, options: SvgOptions = {}): string {
@@ -192,17 +180,12 @@ function renderEdge(edge: DiagramEdge, boxes: Map<string, Rect>, palette: Palett
     `<line x1="${round(from.x)}" y1="${round(from.y)}" x2="${round(to.x)}" y2="${round(to.y)}" stroke="${palette.edge}" stroke-width="1.5"/>`,
   );
 
-  const dx = to.x - from.x;
-  const dy = to.y - from.y;
-  const length = Math.hypot(dx, dy) || 1;
-  const unitX = dx / length;
-  const unitY = dy / length;
-  const offset = 16;
+  const cards = cardinalityPoints(from, to, source, target);
 
-  const sourceCardX = round(from.x + unitX * offset);
-  const sourceCardY = round(from.y + unitY * offset);
-  const targetCardX = round(to.x - unitX * offset);
-  const targetCardY = round(to.y - unitY * offset);
+  const sourceCardX = round(cards.source.x);
+  const sourceCardY = round(cards.source.y);
+  const targetCardX = round(cards.target.x);
+  const targetCardY = round(cards.target.y);
 
   parts.push(
     `<text class="c" x="${sourceCardX}" y="${sourceCardY}" text-anchor="middle">${escapeXml(edge.sourceCardinality)}</text>`,

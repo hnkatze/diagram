@@ -1,10 +1,28 @@
 "use client";
 
 import { memo } from "react";
-import { EdgeLabelRenderer, Handle, Position, getStraightPath, type Edge, type EdgeProps, type Node, type NodeProps } from "@xyflow/react";
+import {
+  EdgeLabelRenderer,
+  Handle,
+  Position,
+  getStraightPath,
+  useInternalNode,
+  type Edge,
+  type EdgeProps,
+  type InternalNode,
+  type Node,
+  type NodeProps,
+} from "@xyflow/react";
 
-import { NODE_HEADER_HEIGHT, NODE_PADDING_X, NODE_ROW_HEIGHT, formatFieldLabel } from "@/lib/diagram/measure";
-import type { DiagramEdge, DiagramKind, DiagramNode } from "@/lib/diagram/types";
+import {
+  NODE_HEADER_HEIGHT,
+  NODE_PADDING_X,
+  NODE_ROW_HEIGHT,
+  borderPoint,
+  cardinalityPoints,
+  formatFieldLabel,
+} from "@/lib/diagram/measure";
+import type { DiagramEdge, DiagramKind, DiagramNode, Point, Rect } from "@/lib/diagram/types";
 
 /**
  * Canvas shapes. They mirror `src/lib/diagram/svg.ts` on purpose: same header
@@ -72,31 +90,56 @@ export interface RelationEdgeData extends Record<string, unknown> {
 
 export type RelationEdgeType = Edge<RelationEdgeData, "relation">;
 
-const CARDINALITY_INSET = 18;
 const SELF_LOOP_X = 56;
 const SELF_LOOP_Y = 64;
+
+/**
+ * Absolute rectangle of a node as React Flow measured it. `null` until the node
+ * exists and has a size, so the edge can fall back to its own handle props.
+ */
+function rectOf(node: InternalNode | undefined): Rect | null {
+  if (!node) return null;
+  const width = node.measured?.width ?? node.width;
+  const height = node.measured?.height ?? node.height;
+  if (typeof width !== "number" || typeof height !== "number" || width <= 0 || height <= 0) return null;
+  return { x: node.internals.positionAbsolute.x, y: node.internals.positionAbsolute.y, width, height };
+}
+
+const centerOf = (box: Rect): Point => ({ x: box.x + box.width / 2, y: box.y + box.height / 2 });
 
 function SelfLoopPath(x: number, y: number): string {
   return `M ${x} ${y} C ${x + SELF_LOOP_X} ${y} ${x + SELF_LOOP_X} ${y - SELF_LOOP_Y} ${x} ${y - SELF_LOOP_Y}`;
 }
 
-function RelationEdgeView({ sourceX, sourceY, targetX, targetY, data, selected }: EdgeProps<RelationEdgeType>) {
+function RelationEdgeView({ source, target, sourceX, sourceY, targetX, targetY, data, selected }: EdgeProps<RelationEdgeType>) {
+  const sourceNode = useInternalNode(source);
+  const targetNode = useInternalNode(target);
   const edge = data?.edge;
   if (!edge) return null;
-  const isSelfLoop = sourceX === targetX && sourceY === targetY;
-  const [straightPath, labelX, labelY] = getStraightPath({ sourceX, sourceY, targetX, targetY });
-  const path = isSelfLoop ? SelfLoopPath(sourceX, sourceY) : straightPath;
 
-  const dx = targetX - sourceX;
-  const dy = targetY - sourceY;
-  const length = Math.hypot(dx, dy) || 1;
-  const unitX = dx / length;
-  const unitY = dy / length;
+  const isSelfLoop = edge.source === edge.target || (sourceX === targetX && sourceY === targetY);
+  const sourceBox = rectOf(sourceNode);
+  const targetBox = rectOf(targetNode);
+  const boxes = !isSelfLoop && sourceBox && targetBox ? { sourceBox, targetBox } : null;
 
-  const sourceCardX = isSelfLoop ? sourceX + SELF_LOOP_X * 0.5 : sourceX + unitX * CARDINALITY_INSET;
-  const sourceCardY = isSelfLoop ? sourceY - 6 : sourceY + unitY * CARDINALITY_INSET;
-  const targetCardX = isSelfLoop ? sourceX + SELF_LOOP_X * 0.5 : targetX - unitX * CARDINALITY_INSET;
-  const targetCardY = isSelfLoop ? sourceY - SELF_LOOP_Y + 12 : targetY - unitY * CARDINALITY_INSET;
+  // The border is resolved from shared geometry, exactly like the exporter, so a
+  // line never starts by crossing back over its own entity.
+  const from: Point = boxes ? borderPoint(boxes.sourceBox, centerOf(boxes.targetBox).x, centerOf(boxes.targetBox).y) : { x: sourceX, y: sourceY };
+  const to: Point = boxes ? borderPoint(boxes.targetBox, centerOf(boxes.sourceBox).x, centerOf(boxes.sourceBox).y) : { x: targetX, y: targetY };
+
+  const [straightPath, labelX, labelY] = getStraightPath({
+    sourceX: from.x,
+    sourceY: from.y,
+    targetX: to.x,
+    targetY: to.y,
+  });
+  const path = isSelfLoop ? SelfLoopPath(from.x, from.y) : straightPath;
+
+  const cards = cardinalityPoints(from, to, boxes?.sourceBox, boxes?.targetBox);
+  const sourceCard = isSelfLoop ? { x: from.x + SELF_LOOP_X * 0.5, y: from.y - 6 } : cards.source;
+  const targetCard = isSelfLoop
+    ? { x: from.x + SELF_LOOP_X * 0.5, y: from.y - SELF_LOOP_Y + 12 }
+    : cards.target;
 
   return (
     <>
@@ -109,13 +152,13 @@ function RelationEdgeView({ sourceX, sourceY, targetX, targetY, data, selected }
       <EdgeLabelRenderer>
         <span
           className="pointer-events-none absolute text-[11px] text-muted-foreground"
-          style={{ transform: `translate(-50%, -50%) translate(${sourceCardX}px, ${sourceCardY}px)` }}
+          style={{ transform: `translate(-50%, -50%) translate(${sourceCard.x}px, ${sourceCard.y}px)` }}
         >
           {edge.sourceCardinality}
         </span>
         <span
           className="pointer-events-none absolute text-[11px] text-muted-foreground"
-          style={{ transform: `translate(-50%, -50%) translate(${targetCardX}px, ${targetCardY}px)` }}
+          style={{ transform: `translate(-50%, -50%) translate(${targetCard.x}px, ${targetCard.y}px)` }}
         >
           {edge.targetCardinality}
         </span>
@@ -123,7 +166,7 @@ function RelationEdgeView({ sourceX, sourceY, targetX, targetY, data, selected }
           <span
             className="pointer-events-none absolute rounded bg-card px-1 text-xs text-card-foreground"
             style={{
-              transform: `translate(-50%, -50%) translate(${isSelfLoop ? sourceX + SELF_LOOP_X + 24 : labelX}px, ${isSelfLoop ? sourceY - SELF_LOOP_Y * 0.75 : labelY}px)`,
+              transform: `translate(-50%, -50%) translate(${isSelfLoop ? from.x + SELF_LOOP_X + 24 : labelX}px, ${isSelfLoop ? from.y - SELF_LOOP_Y * 0.75 : labelY}px)`,
             }}
           >
             {edge.label}
