@@ -1,4 +1,4 @@
-# Diagram editor (UML class + ER)
+# Diagram editor (UML class, ER and state)
 
 A single-page editor for entity-relationship (`er`) and UML class (`uml-class`) diagrams.
 The same diagram is authored from two synchronized surfaces: a React Flow canvas and a
@@ -59,6 +59,32 @@ Usuario 1..* -- 0..1 Pedido : "realiza"
   part are optional. Cardinalities are `1`, `0..1`, `1..*`, `0..*`. Self-relations are allowed.
 - `//` comments anywhere; `#` only outside an entity block, where `#` is the protected
   glyph. Blank lines are ignored. Quoted names and labels support `\"` escapes.
+
+### State diagrams
+
+`diagram state "..."` swaps entities and relations for states and transitions. Same panel,
+same sync, same export:
+
+```
+diagram state "Ciclo del pedido"
+
+initial
+state Nuevo
+state Pagado
+final
+
+Nuevo --> Pagado : "pagar [monto > 0] / emitir recibo"
+Pagado --> Pagado : "reintentar"
+Pagado --> final
+```
+
+- `initial` declares the single initial pseudo-state; a second one is an error.
+- `final` declares a final pseudo-state and may repeat.
+- `state <Name>` declares a state; names are unique and the id is the slug of the name.
+- `<From> --> <To> : "<label>"` declares a transition. The label is free text stored
+  verbatim — `evento [guarda] / acción` is not parsed into parts.
+- Switching between `er` and `uml` converts the open document; switching to or from `state`
+  loads that family's example, because the families share no elements.
 
 While the text is invalid the model is untouched, the canvas keeps the last valid diagram and
 the panel shows the error with its line number.
